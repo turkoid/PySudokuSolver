@@ -1,27 +1,32 @@
 import re
 import numpy as np
+from collections import namedtuple
+
+
+Point = namedtuple("Point", "x y")
+DEFAULT_BOARD_WIDTH, DEFAULT_BOARD_HEIGHT = 3, 3
 
 
 class SudokuBoard(object):
     board = None
-    width = 3
-    height = 3
-    rows = []
+    width = DEFAULT_BOARD_WIDTH
+    height = DEFAULT_BOARD_HEIGHT
     columns = []
+    rows = []
     squares = []
 
-    def __init__(self, width=3, height=3, initial=None):
-        if initial is None:
-            initial = "0" * (width * height * 9)
-
-        initial = re.sub("\n| ", "", initial)
-        self.board = np.array(list(map((lambda x: Cell(x)), list(initial)))).reshape(height * 3, width * 3)
+    def __init__(self, width=DEFAULT_BOARD_WIDTH, height=DEFAULT_BOARD_HEIGHT, initial=None):
         self.width = width
         self.height = height
 
-        self.rows = list(map(lambda y: self.row(y), range(0, height * 3)))
-        self.columns = list(map(lambda x: self.column(x), range(0, width * 3)))
-        self.squares = list(map(lambda i: self.square(i % 3, int(i / 3), True), range(0, width * height)))
+        if initial is None:
+            initial = "0" * (width * height * 9)
+        initial = re.sub("\n| ", "", initial)
+        self.board = np.array([Cell(self.index_to_coord(i), v) for i, v in enumerate(list(initial))]).reshape(height * 3, width * 3)
+
+        self.rows = [self.row(y) for y in range(0, height * 3)]
+        self.columns = [self.column(x) for x in range(0, width * 3)]
+        self.squares = [self.square(Point(x, y), True) for y in range(0, height) for x in range(0, width)]
 
     def row(self, y):
         return self.board[y]
@@ -29,33 +34,40 @@ class SudokuBoard(object):
     def column(self, x):
         return self.board[:, x].reshape(self.height * 3)
 
-    def square(self, x, y, flat=False):
-        x *= 3
-        y *= 3
+    def square(self, coord, flat=False):
+        x = coord.x * 3
+        y = coord.y * 3
         sq = self.board[y:y + 3, x:x + 3]
         if flat:
             sq = sq.reshape(9)
         return sq
 
     def __str__(self):
-        s = ""
+        sb = ""
         for y in range(0, self.height * 3):
             if y % 3 == 0:
-                s += ("-" * (self.width * 8 + 1)) + "\n"
+                sb += ("-" * (self.width * 8 + 1)) + "\n"
             for x in range(0, self.width * 3):
                 if x % 3 == 0:
-                    s += "| "
-                s += self.board[y, x].display(False) + " "
-            s += "|\n"
-        s += ("-" * (self.width * 8 + 1)) + "\n"
-        return s
+                    sb += "| "
+                sb += self.board[y, x].display(False) + " "
+            sb += "|\n"
+        sb += ("-" * (self.width * 8 + 1)) + "\n"
+        return sb
+
+    def index_to_coord(self, index):
+        return Point(index % (self.width * 3), int(index / (self.height * 3)))
+
+    def coord_to_index(self, coord):
+        return coord.y * (self.height * 3) + coord.x
 
 
 class Cell(object):
     pencil_marks = None
     value = 0
+    coordinate = None
 
-    def __init__(self, value=None):
+    def __init__(self, coord, value=None):
         self.pencil_marks = np.zeros(9, dtype=int)
         if value is not None and int(value) > 0:
             self.value = int(value)
@@ -66,6 +78,12 @@ class Cell(object):
 
     def __repr__(self):
         return self.display()
+
+    def set_value(self, value):
+        if value is not None and int(value) > 0:
+            self.value = int(value)
+            self.pencil_marks = np.zeros(9, dtype=int)
+            self.pencil_marks[self.value - 1] = self.value
 
     def solve(self):
         pass
@@ -87,3 +105,4 @@ board = SudokuBoard(initial=s)
 # print(board.column(7))
 # print(board.square(0, 1, True))
 print(board)
+print(board.squares)
