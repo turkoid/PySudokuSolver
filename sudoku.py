@@ -6,16 +6,28 @@ class SudokuBoard(object):
     board = None
     width = 3
     height = 3
+    rows = []
+    columns = []
+    squares = []
 
     def __init__(self, width=3, height=3, initial=None):
+        if initial is None:
+            initial = "0" * (width * height * 9)
+
         initial = re.sub("\n| ", "", initial)
         self.board = np.array(list(map((lambda x: Cell(x)), list(initial)))).reshape(height * 3, width * 3)
+        self.width = width
+        self.height = height
+
+        self.rows = list(map(lambda y: self.row(y), range(0, height * 3)))
+        self.columns = list(map(lambda x: self.column(x), range(0, width * 3)))
+        self.squares = list(map(lambda i: self.square(i % 3, int(i / 3), True), range(0, width * height)))
 
     def row(self, y):
         return self.board[y]
 
     def column(self, x):
-        return self.board[:, x]
+        return self.board[:, x].reshape(self.height * 3)
 
     def square(self, x, y, flat=False):
         x *= 3
@@ -55,6 +67,9 @@ class Cell(object):
     def __repr__(self):
         return self.display()
 
+    def solve(self):
+        pass
+
 
 s = (
     "000005790"
@@ -67,10 +82,8 @@ s = (
     "308002140"
     "020900605"
     )
-
-
 board = SudokuBoard(initial=s)
-print(board.row(1))
-print(board.column(7))
-print(board.square(0, 1, True))
+# print(board.row(1))
+# print(board.column(7))
+# print(board.square(0, 1, True))
 print(board)
