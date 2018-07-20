@@ -1,7 +1,7 @@
 import re
 import numpy as np
 from collections import namedtuple
-
+import itertools as it
 
 Point = namedtuple("Point", "x y")
 DEFAULT_BOARD_WIDTH, DEFAULT_BOARD_HEIGHT = 3, 3
@@ -22,7 +22,8 @@ class SudokuBoard(object):
         if data is None:
             data = "0" * (width * height * 9)
             data = re.sub("\n| ", "", data)
-        self.board = np.array([Cell(self.index_to_coord(i), v) for i, v in enumerate(list(data))]).reshape(height * 3, width * 3)
+        self.board = np.array([Cell(self.index_to_coord(i), v)
+                               for i, v in enumerate(list(data))]).reshape(height * 3, width * 3)
 
         self.rows = [self.row(y) for y in range(0, self.height * 3)]
         self.columns = [self.column(x) for x in range(0, self.width * 3)]
@@ -87,19 +88,28 @@ class SudokuBoard(object):
             changed = changed or self.check_sole_candidates()
             # unique candidate
             changed = changed or self.check_unique_candidates()
+            # subsets
+            changed = changed or self.check_subsets()
 
-    def filter_linked_cells(self, cell, filter):
-        for linked_cell in self.get_linked_cells(cell, include_solved=False):
-            linked_cell.remove_pencil_marks(filter)
+    def filter_cells(self, cells, filter):
+        changed = False
+        for linked_cell in cells:
+            changed = linked_cell.remove_pencil_marks(filter) or changed
+        return changed
 
-    def get_linked_cells(self, cell, relations=["square", "row", "column"], include_solved=True):
+    def get_linked_cells(self, cell, relations=["square", "row", "column"], include_solved=True, filter_cells = []):
         linked_cells = []
         if "square" in relations:
-            linked_cells += [c for c in self.square(cell.square) if c is not cell and (include_solved or c.value != 0)]
+            linked_cells += [c for c in self.square(cell.square)
+                             if c is not cell and c not in filter_cells and (include_solved or c.value == 0)]
         if "row" in relations:
-            linked_cells += [c for c in self.column(cell.coordinate.x) if c is not cell and (not "square" in relations or c.square.y != cell.square.y) and (include_solved or c.value != 0)]
+            linked_cells += [c for c in self.row(cell.coordinate.y)
+                             if c is not cell and c not in filter_cells and (include_solved or c.value == 0)
+                             and ("square" not in relations or c.square != cell.square)]
         if "column" in relations:
-            linked_cells += [c for c in self.row(cell.coordinate.y) if c is not cell and (not "square" in relations or c.square.x != cell.square.x) and (include_solved or c.value != 0)]
+            linked_cells += [c for c in self.column(cell.coordinate.x)
+                             if c is not cell and c not in filter_cells and (include_solved or c.value == 0)
+                             and ("square" not in relations or c.square != cell.square)]
         return linked_cells
 
     def check_sole_candidates(self):
@@ -110,7 +120,7 @@ class SudokuBoard(object):
             if len(values) == 1:
                 changed = True
                 cell.set_value(values[0])
-                self.filter_linked_cells(cell, [cell.value])
+                self.filter_cells(self.get_linked_cells(cell, include_solved=False), [cell.value])
         return changed
 
     def check_unique_candidates(self):
@@ -119,7 +129,7 @@ class SudokuBoard(object):
         for cell in cells:
             is_cell_changed = False
             for relation in ["square", "row", "column"]:
-                linked_cells = self.get_linked_cells(cell, [relation], include_solved=True)
+                linked_cells = self.get_linked_cells(cell, [relation], include_solved=False)
                 marks = [mark for mark in cell.pencil_marks if mark != 0]
                 for mark in marks:
                     is_unique = True
@@ -127,18 +137,36 @@ class SudokuBoard(object):
                         if linked_cell.pencil_marks[mark - 1] == mark:
                             is_unique = False
                             break
-                    if is_unique:
+                    if is_unique and len(linked_cells) > 0:
                         cell.set_value(mark)
                         is_cell_changed = True
-                        self.filter_linked_cells(cell, [cell.value])
+                        self.filter_cells(self.get_linked_cells(cell, include_solved=False), [cell.value])
                         break
                 if is_cell_changed:
                     break
             changed = changed or is_cell_changed
         return changed
 
-    def check_naked_subsets(self):
-        pass
+    def check_subsets(self):
+        changed = False
+        for relation in ["square", "row", "column"]:
+            if relation == "square":
+                cell_groups = [square for square in self.squares]
+            elif relation == "row":
+                cell_groups = [column for column in self.columns]
+            elif relation == "column":
+                cell_groups = [row for row in self.rows]
+
+            for cell_group in cell_groups:
+                cells = [cell for cell in cell_group if cell.value == 0]
+                for combo_length in range(2, len(cells) - 1):
+                    combinations = it.combinations(cells, combo_length)
+                    for combo in combinations:
+                        unique_marks = set().union(*[combo_cell.pencil_marks for combo_cell in combo])
+                        #print(relation, combo[0].coordinate, combo[0].square, unique_marks)
+                        if len(unique_marks) == combo_length:
+                            changed = self.filter_cells(self.get_linked_cells(combo[0], [relation], False, combo), [unique_marks]) or changed
+        return changed
 
 
 class Cell(object):
@@ -180,12 +208,18 @@ class Cell(object):
             return self.value == other
 
     def add_pencil_marks(self, marks):
+        changed = False
         for mark in marks:
+            changed = changed or self.pencil_marks[mark - 1] == 0
             self.pencil_marks[mark - 1] = mark
+        return changed
 
     def remove_pencil_marks(self, marks):
+        changed = False
         for mark in marks:
+            changed = changed or self.pencil_marks[mark - 1] != 0
             self.pencil_marks[mark - 1] = 0
+        return changed
 
 
 initial = (
@@ -200,6 +234,7 @@ initial = (
     "020900605"
     )
 board = SudokuBoard(initial)
+#board = SudokuBoard("123400789", width=1, height=1)
 # print(board.row(1))
 # print(board.column(7))
 # print(board.square(0, 1, True))
