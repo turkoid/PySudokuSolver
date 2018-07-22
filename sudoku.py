@@ -3,296 +3,150 @@ import numpy as np
 from collections import namedtuple
 import itertools as it
 
-
 Point = namedtuple("Point", "x y")
-DEFAULT_BOARD_WIDTH, DEFAULT_BOARD_HEIGHT = 3, 3
+Dimension = namedtuple("Dimension", "width height")
 
 
-def grouper(n, iterable, fillvalue=None):
-    "Collect data into fixed-length chunks or blocks"
-    # grouper(3, 'ABCDEFG', 'x') --> ABC DEF Gxx
-    args = [iter(iterable)] * n
-    return it.zip_longest(fillvalue=fillvalue, *args)
+class Sudoku(object):
+    DEFAULT_BOARD_DIMENSION = Dimension(3, 3)
 
+    def __init__(self, initial, dimension=DEFAULT_BOARD_DIMENSION):
+        self.initial = list(("0" * self.length**2) if initial is None else re.sub("\n| ", "", initial).upper())
+        self.dimension = dimension
+        self.length = dimension.width * dimension.height
 
-class SudokuBoard(object):
-    board = None
-    width = DEFAULT_BOARD_WIDTH
-    height = DEFAULT_BOARD_HEIGHT
-    columns = []
-    rows = []
-    squares = []
+        self.cells = [Cell(dimension, self.index_to_coord(i), v) for i, v in enumerate(initial)]
+        self.board = np.array(self.cells).reshape(self.length, self.length)
 
-    def __init__(self, data, width=DEFAULT_BOARD_WIDTH, height=DEFAULT_BOARD_HEIGHT):
-        self.width = width
-        self.height = height
+        self.rows = [self.row(y).tolist() for y in range(0, self.length)]
+        self.columns = [self.column(x).tolist() for x in range(0, self.length)]
+        self.squares = [self.square(Point(x, y)).tolist()
+                        for y in range(0, dimension.height)
+                        for x in range(0, dimension.width)]
 
-        if data is None:
-            data = "0" * (width * height * 9)
-            data = re.sub("\n| ", "", data)
-        self.board = np.array([Cell(self.index_to_coord(i), v)
-                               for i, v in enumerate(list(data))]).reshape(height * 3, width * 3)
+        self.populate_candidates()
 
-        self.rows = [self.row(y).tolist() for y in range(0, self.height * 3)]
-        self.columns = [self.column(x).tolist() for x in range(0, self.width * 3)]
-        self.squares = [self.square(Point(x, y)).tolist() for y in range(0, self.height) for x in range(0, self.width)]
-
-        self.populate_marks()
+    def reset(self):
+        for cell, v in zip(self.cells, list(self.initial)):
+            cell.value = v
 
     def cell(self, coord):
         return self.board[coord.y][coord.x]
 
+    def column(self, x, flatten=True):
+        cells = self.board[:, x]
+        return cells.flatten() if flatten else cells
+
     def row(self, y):
         return self.board[y]
 
-    def column(self, x):
-        return self.board[:, x].reshape(self.height * 3)
+    def square(self, coord, flatten=True):
+        cells = self.board[
+                coord.y * self.dimension.width:(coord.y + 1) * self.dimension.width,
+                coord.x * self.dimension.height:(coord.x + 1) * self.dimension.height]
+        return cells.flatten() if flatten else cells
 
-    def square(self, coord, flat=True):
-        x = coord.x * 3
-        y = coord.y * 3
-        sq = self.board[y:y + 3, x:x + 3]
-        if flat:
-            sq = sq.reshape(9)
-        return sq
+    def get_related_cells(self, parent, relations=["square", "row", "column"], filter=None):
+        cells = set()
+        if "square" in relations:
+            cells |= set(self.square(parent.square))
+        if "row" in relations:
+            cells |= set(self.row(parent.location.y))
+        if "column" in relations:
+            cells |= set(self.column(parent.location.x))
+        cells -= {parent}
+        return list(cells) if filter is None else [c for c in cells if filter(c)]
 
-    def __str__(self):
-        sb = ""
-        for y in range(0, self.height * 3):
-            if y % 3 == 0:
-                sb += ("-" * (self.width * 8 + 1)) + "\n"
-            for x in range(0, self.width * 3):
-                if x % 3 == 0:
-                    sb += "| "
-                sb += self.board[y, x].display(False) + " "
-            sb += "|\n"
-        sb += ("-" * (self.width * 8 + 1)) + "\n"
-        return sb
-
-    def index_to_coord(self, index):
-        return Point(index % (self.width * 3), int(index / (self.height * 3)))
-
-    def coord_to_index(self, coord):
-        return coord.y * (self.height * 3) + coord.x
-
-    def populate_marks(self):
-        for row in self.board:
-            for cell in row:
-                if not cell.is_initial:
-                    cell.reset()
-                    for mark in range(1, 10):
-                        add_mark = True
-                        for test_cell in self.get_related_cells(cell):
-                            if test_cell is not cell and test_cell.value == mark:
-                                add_mark = False
-                                break
-                        if add_mark:
-                            # oh hai mark
-                            cell.add_pencil_marks([mark])
+    def populate_candidates(self):
+        for cell in (cell for cell in self.cells if cell.value == 0):
+            cell.value = None
+            cell.candidates = set(range(1, 10)) - set([c.value for c in self.get_related_cells(cell, filter=(lambda c: c.value != 0))])
 
     def solve(self):
-        # first set the value for any cell that has only one valid option
-        changed = True
-        while changed:
-            changed = False
-            # sole candidate
-            changed = changed or self.check_sole_candidates()
-            # unique candidate
-            changed = changed or self.check_unique_candidates()
-            # subsets
-            changed = changed or self.check_subsets()
-            # blocking subsets
-            changed = changed or self.check_blocking_subsets()
+        pass
 
-    @staticmethod
-    def filter_cells(cells, filter, func=""):
-        changed = False
-        for related_cell in cells:
-            if related_cell.remove_pencil_marks(filter):
-                changed = True
-                print("%s: %s - %s" % (func, SudokuBoard.print_coord(related_cell.coordinate), filter))
-        return changed
+    def __str__(self):
+        column_labels = list()
+        column_labels.append("   ")
+        for x in range(0, self.length):
+            if x % self.dimension.height == 0: column_labels.append("  ")
+            column_labels.append("{} ".format(chr(ord("A") + x)))
+        column_labels.append("   \n")
 
-    def get_related_cells(self, cell, relations=["square", "row", "column"], include_solved=True, excluded_cells=[]):
-        related_cells = []
-        if "square" in relations:
-            related_cells += [c for c in self.square(cell.square)
-                             if c is not cell and c not in excluded_cells and (include_solved or c.value == 0)]
-        if "row" in relations:
-            related_cells += [c for c in self.row(cell.coordinate.y)
-                             if c is not cell and c not in excluded_cells and (include_solved or c.value == 0)
-                             and ("square" not in relations or c.square != cell.square)]
-        if "column" in relations:
-            related_cells += [c for c in self.column(cell.coordinate.x)
-                             if c is not cell and c not in excluded_cells and (include_solved or c.value == 0)
-                             and ("square" not in relations or c.square != cell.square)]
-        return related_cells
+        line = list()
+        line.append("   ")
+        line.extend(["+" if i % 2 == 0 else "-" * (self.dimension.height * 2 + 1)
+                    for i in range(0, self.dimension.width * 2)])
+        line.append("+   \n")
 
-    def check_sole_candidates(self):
-        changed = False
-        cells = [cell for row in self.board for cell in row if cell.value == 0]
-        for cell in cells:
-            values = [mark for mark in cell.pencil_marks if mark != 0]
-            if len(values) == 1:
-                changed = True
-                cell.set_value(values[0])
-                SudokuBoard.filter_cells(self.get_related_cells(cell, include_solved=False), [cell.value], "sole_candidates")
-        return changed
+        buffer = list()
+        buffer.extend(column_labels)
+        for y, row in enumerate(self.board):
+            if y % self.dimension.width == 0: buffer.extend(line)
+            buffer.append("{: >2} ".format(y + 1))
+            for x, cell in enumerate(row):
+                if x % self.dimension.height == 0: buffer.append("| ")
+                buffer.append("{} ".format(str(cell)))
+            buffer.append("| {: <2}\n".format(y + 1))
+        buffer.extend(line)
+        buffer.extend(column_labels)
 
-    def check_unique_candidates(self):
-        changed = False
-        cells = [cell for row in self.board for cell in row if cell.value == 0]
-        for cell in cells:
-            is_cell_changed = False
-            for relation in ["square", "row", "column"]:
-                related_cells = self.get_related_cells(cell, [relation], include_solved=False)
-                marks = [mark for mark in cell.pencil_marks if mark != 0]
-                for mark in marks:
-                    is_unique = True
-                    for related_cell in related_cells:
-                        if related_cell.pencil_marks[mark - 1] == mark:
-                            is_unique = False
-                            break
-                    if is_unique and len(related_cells) > 0:
-                        cell.set_value(mark)
-                        is_cell_changed = True
-                        SudokuBoard.filter_cells(self.get_related_cells(cell, include_solved=False), [cell.value], "unique_candidates")
-                        break
-                if is_cell_changed:
-                    break
-            changed = changed or is_cell_changed
-        return changed
+        return "".join(buffer)
 
-    def check_subsets(self):
-        changed = False
-        for relation in ["square", "row", "column"]:
-            if relation == "square":
-                cell_groups = self.squares
-            elif relation == "row":
-                cell_groups = self.rows
-            elif relation == "column":
-                cell_groups = self.columns
+    def print(self):
+        print(str(self))
 
-            for cell_group in cell_groups:
-                cells = [cell for cell in cell_group if cell.value == 0]
-                for combo_length in range(2, len(cells) - 1):
-                    combinations = it.combinations(cells, combo_length)
-                    for combo in combinations:
-                        unique_marks = set().union(*[combo_cell.pencil_marks for combo_cell in combo if combo_cell.value == 0]) - {0}
-                        if len(unique_marks) == combo_length:
-                            changed = SudokuBoard.filter_cells(self.get_related_cells(combo[0], [relation], False, list(combo)), list(unique_marks), "subsets") or changed
-        return changed
+    def index_to_coord(self, index):
+        return Point(index % self.length, int(index / self.length))
 
-    def check_blocking_subsets(self):
-        changed = False
-        for relation in ["row", "column"]:
-            if relation == "row":
-                cell_groups = [cell_group for row in self.rows for cell_group in grouper(3, row)]
-            elif relation == "column":
-                cell_groups = [cell_group for column in self.columns for cell_group in grouper(3, column)]
-
-            for cell_group in cell_groups:
-                for link_relation in [relation, "square"]:
-                    related_cells = self.get_related_cells(cell_group[0], [link_relation], False, list(cell_group))
-                    cell_group_marks = set().union(*[cell.pencil_marks for cell in cell_group if cell.value == 0]) - {0}
-                    related_group_marks = set().union(*[cell.pencil_marks for cell in related_cells if cell.value == 0]) - {0}
-                    blocking_marks = cell_group_marks - related_group_marks
-                    if len(blocking_marks) > 0:
-                        filter_cells = self.get_related_cells(cell_group[0], [relation, "square"], False, list(cell_group))
-                        changed = SudokuBoard.filter_cells(filter_cells, list(blocking_marks), "blocking_subsets") or changed
-        return changed
-
-    def check_x_wing(self):
-        changed = False
-        for relation in ["square", "row", "column"]:
-            if relation == "square":
-                cell_groups = self.squares
-            elif relation == "row":
-                cell_groups = self.rows
-            elif relation == "column":
-                cell_groups = self.columns
-
-            for cell_group in cell_groups:
-                cells = [cell for cell in cell_group if cell.value == 0]
-                for combo_length in range(2, len(cells) - 1):
-                    combinations = it.combinations(cells, combo_length)
-                    for combo in combinations:
-                        unique_marks = set().union(
-                            *[combo_cell.pencil_marks for combo_cell in combo if combo_cell.value == 0]) - {0}
-                        if len(unique_marks) == combo_length:
-                            changed = SudokuBoard.filter_cells(
-                                self.get_related_cells(combo[0], [relation], False, list(combo)), list(unique_marks),
-                                "subsets") or changed
-        return changed
-    
-    @staticmethod
-    def print_cells_coordinates(cells):
-        return [SudokuBoard.print_coord(c.coordinate) for c in cells]
-
-    @staticmethod
-    def print_coord(coord, format_options="1A:{1}{0}"):
-        translation_maps = {
-            "0": list(range(0, 9)),
-            "1": list(range(1, 10)),
-            "A": [chr(c) for c in range(ord("A"), ord("A") + 9)]
-        }
-        index_keys = list(range(0, 9))
-        translations = {
-            "x": dict(list(zip(index_keys, translation_maps[format_options[0]]))),
-            "y": dict(list(zip(index_keys, translation_maps[format_options[1]])))
-        }
-        return format_options[3:].format(translations["x"][coord.x], translations["y"][coord.y])
+    def coord_to_index(self, coord):
+        return coord.y * self.length + coord.x
 
 
 class Cell(object):
-    pencil_marks = []
-    value = 0
-    coordinate = None
-    square = None
-    is_initial = False
+    MAX_CELL_VALUE = 25
+    CELL_VALUE_MAP = dict(list(zip(
+        range(0, MAX_CELL_VALUE + 1),
+        [" "] + [str(i) for i in range(1, 10)] + [chr(code) for code in range(ord("A"), ord("A") + MAX_CELL_VALUE - 9)]
+    )))
 
-    def __init__(self, coordinate, value=None):
-        self.coordinate = coordinate
-        self.square = Point(int(coordinate.x / 3), int(coordinate.y / 3))
-        self.reset()
-        self.is_initial = self.set_value(value)
+    def __init__(self, board_dimension, location, value=None):
+        self.board_dimension = board_dimension
+        self.location = location
+        self.square = Point(int(location.x / board_dimension.height), int(location.y / board_dimension.width))
+        self.candidates = None
+        self.value = value
 
-    def display(self, zero=True):
-        return " " if not zero and self.value == 0 else str(self.value)
+    def __str__(self):
+        return " " if self.value == 0 else Cell.CELL_VALUE_MAP[self.value]
 
     def __repr__(self):
-        return self.display()
+        return "Cell({}, {}, {})".format(self.board_dimension, self.location, self.value)
 
-    def set_value(self, value):
-        if self.coordinate == Point(2, 1) and value == 4:
-            print("??")
-        if value is not None and int(value) > 0:
-            self.value = int(value)
-            self.reset()
-            self.add_pencil_marks([self.value])
-            return True
-        return False
+    @property
+    def value(self):
+        return self._value
 
-    def reset(self):
-        self.pencil_marks = [0] * 9
+    @value.setter
+    def value(self, value):
+        if value is None:
+            self._value = 0
+        elif isinstance(value, str) and not (ord("0") <= ord(value) <= ord("9")):
+            self._value = ord(value) - ord("A") + 10
+        else:
+            self._value = int(value)
+        self.candidates = {} if self.value == 0 else {self.value}
 
-    def add_pencil_marks(self, marks):
-        changed = False
-        for mark in marks:
-            changed = changed or self.pencil_marks[mark - 1] == 0
-            self.pencil_marks[mark - 1] = mark
-        return changed
 
-    def remove_pencil_marks(self, marks):
-        changed = False
-        for mark in marks:
-            if mark > 0:
-                if self.pencil_marks[mark - 1] != 0:
-                    changed = True
-                    self.pencil_marks[mark - 1] = 0
-                changed = changed or self.pencil_marks[mark - 1] != 0
-                self.pencil_marks[mark - 1] = 0
-        return changed
+def grouper(n, iterable, fillvalue=None):
+    """
+        Collect data into fixed-length chunks or blocks
+
+        https://docs.python.org/3/library/itertools.html#itertools-recipes
+    """
+    # grouper(3, 'ABCDEFG', 'x') --> ABC DEF Gxx
+    args = [iter(iterable)] * n
+    return it.zip_longest(fillvalue=fillvalue, *args)
 
 
 initial = (
@@ -305,11 +159,12 @@ initial = (
     "050001070"
     "308002140"
     "020900605"
-    )
-#initial = "070004000869000000000000010000010007080009600002057040958003000000001200300000789"
+)
+initial = "070004000869000000000000010000010007080009600002057040958003000000001200300000789"
 initial = "090600800000503400807000610000050007000790100000006300070000020040000000203061004"
-initial = "000000000200601005004203900031000850600705009085000470006509200400106007000000000" #4831
-board = SudokuBoard(initial)
-print(board)
-board.solve()
-print(board)
+initial = "000000000200601005004203900031000850600705009085000470006509200400106007000000000"  # 4831
+puzzle = Sudoku(initial)
+puzzle.print()
+puzzle.solve()
+puzzle.print()
+
