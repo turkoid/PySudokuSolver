@@ -142,8 +142,8 @@ class Sudoku(object):
                                 blocking_relation = "square"
                             if blocking_relation is not None:
                                 changed = Sudoku.remove_candidates_from_cells(self.related_cells(
-                                    combo[0], [blocking_relation], filter=lambda c: c.value == 0 and c not in combo), candidates
-                                ) or changed
+                                    combo[0], [blocking_relation], filter=lambda c: c.value == 0 and c not in combo
+                                ), candidates) or changed
         return changed
 
     def solve_advanced(self):
