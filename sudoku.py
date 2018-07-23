@@ -15,7 +15,7 @@ class Sudoku(object):
         self.dimension = dimension
         self.length = dimension.width * dimension.height
 
-        self.cells = [Cell(dimension, self.index_to_coord(i), v) for i, v in enumerate(initial)]
+        self.cells = [Cell(dimension, self.index_to_coord(i), value) for i, value in enumerate(initial)]
         self.board = np.array(self.cells).reshape(self.length, self.length)
 
         self.rows = [self.row(y).tolist() for y in range(0, self.length)]
@@ -27,8 +27,8 @@ class Sudoku(object):
         self.populate_candidates()
 
     def reset(self):
-        for cell, v in zip(self.cells, list(self.initial)):
-            cell.value = v
+        for cell, value in zip(self.cells, list(self.initial)):
+            cell.value = value
 
     def cell(self, coord):
         return self.board[coord.y][coord.x]
@@ -46,7 +46,7 @@ class Sudoku(object):
                 coord.x * self.dimension.height:(coord.x + 1) * self.dimension.height]
         return cells.flatten() if flatten else cells
 
-    def get_related_cells(self, parent, relations=["square", "row", "column"], filter=None):
+    def related_cells(self, parent, relations=["square", "row", "column"], filter=None):
         cells = set()
         if "square" in relations:
             cells |= set(self.square(parent.square))
@@ -58,12 +58,100 @@ class Sudoku(object):
         return list(cells) if filter is None else [c for c in cells if filter(c)]
 
     def populate_candidates(self):
-        for cell in (cell for cell in self.cells if cell.value == 0):
+        for cell in [c for c in self.cells if c.value == 0]:
             cell.value = None
-            cell.candidates = set(range(1, 10)) - set([c.value for c in self.get_related_cells(cell, filter=(lambda c: c.value != 0))])
+            cell.candidates = set(range(1, 10)).difference(
+                (rc.value for rc in self.related_cells(cell, filter=lambda c: c.value != 0)))
 
+    @staticmethod
+    def remove_candidates_from_cells(cells, candidates):
+        if not candidates: return False
+        cells = [c for c in cells if c.value == 0 and c.candidates and not c.candidates.isdisjoint(candidates)]
+        for cell in cells: cell.candidates -= candidates
+        return len(cells) > 0
+
+    @staticmethod
+    def is_same_column(cells):
+        return not cells or [c.location.x for c in cells].count(cells[0].location.x) == len(cells)
+
+    @staticmethod
+    def is_same_row(cells):
+        return not cells or [c.location.y for c in cells].count(cells[0].location.y) == len(cells)
+
+    @staticmethod
+    def is_same_square(cells):
+        return not cells or [c.square for c in cells].count(cells[0].square) == len(cells)
+    
     def solve(self):
-        pass
+        techniques = [
+            self.check_sole_candidates,
+            self.check_unique_candidates,
+            self.check_subsets,
+            # self.check_blocking_subsets,
+            # self.check_x_wing
+        ]
+        changed = True
+        while changed:
+            changed = False
+            for technique in techniques:
+                changed = changed or technique()
+
+    def check_sole_candidates(self):
+        cells = [c for c in self.cells if c.value == 0 and len(c.candidates) == 1]
+        changed = len(cells) > 0
+        for cell in cells:
+            cell.value = next(iter(cell.candidates))
+            Sudoku.remove_candidates_from_cells(self.related_cells(cell), {cell.value})
+            print("sole_candidate")
+        return changed
+
+    def check_unique_candidates(self):
+        changed = False
+        cells = [c for c in self.cells if c.value == 0]
+        for cell in cells:
+            for relation in ["square", "row", "column"]:
+                unique_candidates = cell.candidates.difference(
+                    *[rc.candidates for rc in self.related_cells(cell, [relation], filter=lambda c: c.value == 0)])
+                if len(unique_candidates) == 1:
+                    cell.value = next(iter(unique_candidates))
+                    Sudoku.remove_candidates_from_cells(self.related_cells(cell), {cell.value})
+                    changed = True
+                    break
+        return changed
+
+    def check_subsets(self):
+        changed = False
+        for relation in ["square", "row", "column"]:
+            cell_groups = [[c for c in grp if c.value == 0] for grp in (
+                self.squares if relation == "square"
+                else self.rows if relation == "row"
+                else self.columns
+            )]
+            for cells in cell_groups:
+                for combo_length in range(2, len(cells) - 1):
+                    for combo in it.combinations(cells, combo_length):
+                        other_cells = [c for c in cells if c not in combo]
+                        candidates = set().union(*[c.candidates for c in combo])
+                        candidates -= set().union(*[c.candidates for c in other_cells])
+                        if len(candidates) == combo_length:
+                            changed = Sudoku.remove_candidates_from_cells(
+                                combo, candidates.symmetric_difference(
+                                    set().union(*[c.candidates for c in combo])
+                                )) or changed
+                            changed = Sudoku.remove_candidates_from_cells(other_cells, candidates) or changed
+                            blocking_relation = None
+                            if relation == "square":
+                                if Sudoku.is_same_column(combo):
+                                    blocking_relation = "column"
+                                elif Sudoku.is_same_row(combo):
+                                    blocking_relation = "row"
+                            elif Sudoku.is_same_square(combo):
+                                blocking_relation = "square"
+                            if blocking_relation is not None:
+                                changed = Sudoku.remove_candidates_from_cells(self.related_cells(
+                                    combo[0], [blocking_relation], filter=lambda c: c.value == 0 and c not in combo), candidates
+                                ) or changed
+        return changed
 
     def __str__(self):
         column_labels = list()
@@ -138,17 +226,6 @@ class Cell(object):
         self.candidates = {} if self.value == 0 else {self.value}
 
 
-def grouper(n, iterable, fillvalue=None):
-    """
-        Collect data into fixed-length chunks or blocks
-
-        https://docs.python.org/3/library/itertools.html#itertools-recipes
-    """
-    # grouper(3, 'ABCDEFG', 'x') --> ABC DEF Gxx
-    args = [iter(iterable)] * n
-    return it.zip_longest(fillvalue=fillvalue, *args)
-
-
 initial = (
     "000005790"
     "000800006"
@@ -161,8 +238,8 @@ initial = (
     "020900605"
 )
 initial = "070004000869000000000000010000010007080009600002057040958003000000001200300000789"
-initial = "090600800000503400807000610000050007000790100000006300070000020040000000203061004"
-initial = "000000000200601005004203900031000850600705009085000470006509200400106007000000000"  # 4831
+#initial = "090600800000503400807000610000050007000790100000006300070000020040000000203061004"
+#initial = "000000000200601005004203900031000850600705009085000470006509200400106007000000000"  # 4831
 puzzle = Sudoku(initial)
 puzzle.print()
 puzzle.solve()
