@@ -4,25 +4,25 @@ from collections import namedtuple
 import itertools as it
 
 Point = namedtuple("Point", "x y")
-Dimension = namedtuple("Dimension", "width height")
-
+Dimension = namedtuple("Dim", "width height")
+CellRectangle = namedtuple("CellRect", "top_left top_right bottom_left bottom_right")
 
 class Sudoku(object):
-    DEFAULT_BOARD_DIMENSION = Dimension(3, 3)
+    DEFAULT_BOARD_SIZE = Dimension(3, 3)
 
-    def __init__(self, initial, dimension=DEFAULT_BOARD_DIMENSION):
+    def __init__(self, initial, size=DEFAULT_BOARD_SIZE):
         self.initial = list(("0" * self.length**2) if initial is None else re.sub("\n| ", "", initial).upper())
-        self.dimension = dimension
-        self.length = dimension.width * dimension.height
+        self.size = size
+        self.length = size.width * size.height
 
-        self.cells = [Cell(dimension, self.index_to_coord(i), value) for i, value in enumerate(initial)]
+        self.cells = [Cell(size, self.index_to_coord(i), value) for i, value in enumerate(initial)]
         self.board = np.array(self.cells).reshape(self.length, self.length)
 
         self.rows = [self.row(y).tolist() for y in range(0, self.length)]
         self.columns = [self.column(x).tolist() for x in range(0, self.length)]
         self.squares = [self.square(Point(x, y)).tolist()
-                        for y in range(0, dimension.height)
-                        for x in range(0, dimension.width)]
+                        for y in range(0, size.height)
+                        for x in range(0, size.width)]
 
         self.populate_candidates()
 
@@ -42,8 +42,8 @@ class Sudoku(object):
 
     def square(self, coord, flatten=True):
         cells = self.board[
-                coord.y * self.dimension.width:(coord.y + 1) * self.dimension.width,
-                coord.x * self.dimension.height:(coord.x + 1) * self.dimension.height]
+                coord.y * self.size.width:(coord.y + 1) * self.size.width,
+                coord.x * self.size.height:(coord.x + 1) * self.size.height]
         return cells.flatten() if flatten else cells
 
     def related_cells(self, parent, relations=["square", "row", "column"], filter=None):
@@ -60,7 +60,7 @@ class Sudoku(object):
     def populate_candidates(self):
         for cell in [c for c in self.cells if c.value == 0]:
             cell.value = None
-            cell.candidates = set(range(1, 10)).difference(
+            cell.candidates = set(range(1,  self.length + 1)).difference(
                 (rc.value for rc in self.related_cells(cell, filter=lambda c: c.value != 0)))
 
     @staticmethod
@@ -146,29 +146,63 @@ class Sudoku(object):
         return changed
 
     def solve_advanced(self):
-        pass
+        changed = False
+
+        rectangles = [
+            CellRectangle(
+                tl,
+                self.cell(Point(br.location.x, tl.location.y)),
+                self.cell(Point(tl.location.x, br.location.y)),
+                br
+            )
+            for tl in self.cells if (
+                tl.value == 0
+                and tl.square.x < self.size.width - 1 and tl.square.y < self.size.height - 1
+            )
+            for br in self.cells if (
+                br.value == 0
+                and br.location.x > tl.location.x and br.location.y > tl.location.y
+                and br.square.x > tl.square.x and br.square.y > tl.square.x
+            ) if (
+                self.cell(Point(tl.location.x, br.location.y)).value == 0
+                and self.cell(Point(br.location.x, tl.location.y)).value == 0
+            )
+        ]
+
+        for rect in rectangles:
+            row_cells = [c for c in self.row(rect.top_left.location.y) if c.value == 0 and c not in rect]
+            row_cells.extend([c for c in self.row(rect.bottom_right.location.y) if c.value == 0 and c not in rect])
+            col_cells = [c for c in self.column(rect.top_left.location.x) if c.value == 0 and c not in rect]
+            col_cells.extend([c for c in self.column(rect.bottom_right.location.x) if c.value == 0 and c not in rect])
+            for relation in ["row", "column"]:
+                candidates = set(range(1, self.length + 1)).intersection(*[c.candidates for c in rect])
+                candidates -= set().union(*[c.candidates for c in (row_cells if relation == "row" else col_cells)])
+                changed = self.remove_candidates_from_cells(
+                    (col_cells if relation == "row" else row_cells), candidates
+                ) or changed
+        return changed
 
     def __str__(self):
         column_labels = list()
         column_labels.append("   ")
         for x in range(0, self.length):
-            if x % self.dimension.height == 0: column_labels.append("  ")
+            if x % self.size.height == 0: column_labels.append("  ")
             column_labels.append("{} ".format(chr(ord("A") + x)))
         column_labels.append("   \n")
 
         line = list()
         line.append("   ")
-        line.extend(["+" if i % 2 == 0 else "-" * (self.dimension.height * 2 + 1)
-                    for i in range(0, self.dimension.width * 2)])
+        line.extend(["+" if i % 2 == 0 else "-" * (self.size.height * 2 + 1)
+                    for i in range(0, self.size.width * 2)])
         line.append("+   \n")
 
         buffer = list()
         buffer.extend(column_labels)
         for y, row in enumerate(self.board):
-            if y % self.dimension.width == 0: buffer.extend(line)
+            if y % self.size.width == 0: buffer.extend(line)
             buffer.append("{: >2} ".format(y + 1))
             for x, cell in enumerate(row):
-                if x % self.dimension.height == 0: buffer.append("| ")
+                if x % self.size.height == 0: buffer.append("| ")
                 buffer.append("{} ".format(str(cell)))
             buffer.append("| {: <2}\n".format(y + 1))
         buffer.extend(line)
@@ -190,7 +224,7 @@ class Cell(object):
     MAX_CELL_VALUE = 25
     CELL_VALUE_MAP = dict(list(zip(
         range(0, MAX_CELL_VALUE + 1),
-        [" "] + [str(i) for i in range(1, 10)] + [chr(code) for code in range(ord("A"), ord("A") + MAX_CELL_VALUE - 9)]
+        [" "] + [str(i) for i in range(1, MAX_CELL_VALUE + 1)] + [chr(code) for code in range(ord("A"), ord("A") + MAX_CELL_VALUE - 9)]
     )))
 
     def __init__(self, board_dimension, location, value=None):
@@ -221,7 +255,7 @@ class Cell(object):
         self.candidates = {} if self.value == 0 else {self.value}
 
 
-initial = (
+data = (
     "000005790"
     "000800006"
     "005609403"
@@ -231,11 +265,13 @@ initial = (
     "050001070"
     "308002140"
     "020900605"
-)
-initial = "070004000869000000000000010000010007080009600002057040958003000000001200300000789"
-initial = "090600800000503400807000610000050007000790100000006300070000020040000000203061004"
-initial = "000000000200601005004203900031000850600705009085000470006509200400106007000000000"  # 4831
-puzzle = Sudoku(initial)
+) # from app
+data = "070004000869000000000000010000010007080009600002057040958003000000001200300000789"  # from app
+data = "090600800000503400807000610000050007000790100000006300070000020040000000203061004"  # from app
+data = "000000000200601005004203900031000850600705009085000470006509200400106007000000000"  # 4831 x-wing
+data = "000000000000000805000071000000000007005090081007008593008023070039005000071060004"  # 3096 xy-wing
+
+puzzle = Sudoku(data)
 puzzle.print()
 puzzle.solve()
 puzzle.print()
