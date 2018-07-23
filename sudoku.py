@@ -7,6 +7,7 @@ Point = namedtuple("Point", "x y")
 Dimension = namedtuple("Dim", "width height")
 CellRectangle = namedtuple("CellRect", "top_left top_right bottom_left bottom_right")
 
+
 class Sudoku(object):
     DEFAULT_BOARD_SIZE = Dimension(3, 3)
 
@@ -175,7 +176,7 @@ class Sudoku(object):
             col_cells = [c for c in self.column(rect.top_left.location.x) if c.value == 0 and c not in rect]
             col_cells.extend([c for c in self.column(rect.bottom_right.location.x) if c.value == 0 and c not in rect])
             for relation in ["row", "column"]:
-                candidates = set(range(1, self.length + 1)).intersection(*[c.candidates for c in rect])
+                candidates = Cell.CANDIDATES.intersection(*[c.candidates for c in rect])
                 candidates -= set().union(*[c.candidates for c in (row_cells if relation == "row" else col_cells)])
                 changed = self.remove_candidates_from_cells(
                     (col_cells if relation == "row" else row_cells), candidates
@@ -222,9 +223,10 @@ class Sudoku(object):
 
 class Cell(object):
     MAX_CELL_VALUE = 25
+    CANDIDATES = set(range(1, MAX_CELL_VALUE + 1))
     CELL_VALUE_MAP = dict(list(zip(
         range(0, MAX_CELL_VALUE + 1),
-        [" "] + [str(i) for i in range(1, MAX_CELL_VALUE + 1)] + [chr(code) for code in range(ord("A"), ord("A") + MAX_CELL_VALUE - 9)]
+        [" "] + [str(i) for i in CANDIDATES] + [chr(code) for code in range(ord("A"), ord("A") + MAX_CELL_VALUE - 9)]
     )))
 
     def __init__(self, board_dimension, location, value=None):
@@ -265,7 +267,7 @@ data = (
     "050001070"
     "308002140"
     "020900605"
-) # from app
+)  # from app
 data = "070004000869000000000000010000010007080009600002057040958003000000001200300000789"  # from app
 data = "090600800000503400807000610000050007000790100000006300070000020040000000203061004"  # from app
 data = "000000000200601005004203900031000850600705009085000470006509200400106007000000000"  # 4831 x-wing
