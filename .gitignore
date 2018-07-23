@@ -183,5 +183,7 @@ venv.bak/
 ### Python Patch ###
 .venv/
 
+# extra ignore
+sandbox.py
 
 # End of https://www.gitignore.io/api/python,pycharm
