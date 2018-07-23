@@ -84,11 +84,9 @@ class Sudoku(object):
     
     def solve(self):
         techniques = [
-            self.check_sole_candidates,
-            self.check_unique_candidates,
-            self.check_subsets,
-            # self.check_blocking_subsets,
-            # self.check_x_wing
+            self.solve_candidates,
+            self.solve_subsets,
+            self.solve_advanced
         ]
         changed = True
         while changed:
@@ -96,30 +94,24 @@ class Sudoku(object):
             for technique in techniques:
                 changed = changed or technique()
 
-    def check_sole_candidates(self):
-        cells = [c for c in self.cells if c.value == 0 and len(c.candidates) == 1]
-        changed = len(cells) > 0
-        for cell in cells:
-            cell.value = next(iter(cell.candidates))
-            Sudoku.remove_candidates_from_cells(self.related_cells(cell), {cell.value})
-            print("sole_candidate")
-        return changed
-
-    def check_unique_candidates(self):
+    def solve_candidates(self):
         changed = False
         cells = [c for c in self.cells if c.value == 0]
         for cell in cells:
-            for relation in ["square", "row", "column"]:
-                unique_candidates = cell.candidates.difference(
-                    *[rc.candidates for rc in self.related_cells(cell, [relation], filter=lambda c: c.value == 0)])
-                if len(unique_candidates) == 1:
-                    cell.value = next(iter(unique_candidates))
-                    Sudoku.remove_candidates_from_cells(self.related_cells(cell), {cell.value})
-                    changed = True
-                    break
+            if len(cell.candidates) == 1:
+                candidates = cell.candidates
+            else:
+                for relation in ["square", "row", "column"]:
+                    candidates = cell.candidates.difference(
+                        *[rc.candidates for rc in self.related_cells(cell, [relation], filter=lambda c: c.value == 0)])
+                    if len(candidates) == 1: break
+            if len(candidates) == 1:
+                cell.value = next(iter(candidates))
+                Sudoku.remove_candidates_from_cells(self.related_cells(cell), {cell.value})
+                changed = True
         return changed
 
-    def check_subsets(self):
+    def solve_subsets(self):
         changed = False
         for relation in ["square", "row", "column"]:
             cell_groups = [[c for c in grp if c.value == 0] for grp in (
@@ -152,6 +144,9 @@ class Sudoku(object):
                                     combo[0], [blocking_relation], filter=lambda c: c.value == 0 and c not in combo), candidates
                                 ) or changed
         return changed
+
+    def solve_advanced(self):
+        pass
 
     def __str__(self):
         column_labels = list()
@@ -238,8 +233,8 @@ initial = (
     "020900605"
 )
 initial = "070004000869000000000000010000010007080009600002057040958003000000001200300000789"
-#initial = "090600800000503400807000610000050007000790100000006300070000020040000000203061004"
-#initial = "000000000200601005004203900031000850600705009085000470006509200400106007000000000"  # 4831
+initial = "090600800000503400807000610000050007000790100000006300070000020040000000203061004"
+initial = "000000000200601005004203900031000850600705009085000470006509200400106007000000000"  # 4831
 puzzle = Sudoku(initial)
 puzzle.print()
 puzzle.solve()
