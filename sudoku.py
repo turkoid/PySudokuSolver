@@ -86,7 +86,7 @@ class Sudoku(object):
 
     def solve(self):
         techniques = [
-            self.solve_candidates,
+            self.solve_singles,
             self.solve_subsets,
             self.solve_fish,
             self.solve_wings,
@@ -97,7 +97,7 @@ class Sudoku(object):
             for technique in techniques:
                 changed = changed or technique()
 
-    def solve_candidates(self):
+    def solve_singles(self):
         changed = False
         cells = [c for c in self.cells if c.value == 0]
         for cell in cells:
