@@ -12,12 +12,12 @@ CellRectangle = namedtuple("CellRect", "top_left top_right bottom_left bottom_ri
 class Sudoku(object):
     DEFAULT_BOARD_SIZE = Dimension(3, 3)
 
-    def __init__(self, initial, size=DEFAULT_BOARD_SIZE):
-        self.initial = list(("0" * self.length**2) if initial is None else re.sub("\n| ", "", initial).upper())
+    def __init__(self, seed, size=DEFAULT_BOARD_SIZE):
+        self.seed = list(("0" * self.length**2) if seed is None else re.sub("\n| ", "", seed).upper())
         self.size = size
         self.length = size.width * size.height
 
-        self.cells = [Cell(size, self.index_to_coord(i), value) for i, value in enumerate(initial)]
+        self.cells = [Cell(size, self.index_to_coord(i), value) for i, value in enumerate(seed)]
         self.board = np.array(self.cells).reshape(self.length, self.length)
 
         self.rows = [self.row(y).tolist() for y in range(0, self.length)]
@@ -29,7 +29,7 @@ class Sudoku(object):
         self.populate_candidates()
 
     def reset(self):
-        for cell, value in zip(self.cells, list(self.initial)):
+        for cell, value in zip(self.cells, list(self.seed)):
             cell.value = value
 
     def cell(self, coord):
@@ -60,15 +60,15 @@ class Sudoku(object):
         return list(cells) if filter is None else [c for c in cells if filter(c)]
 
     def populate_candidates(self):
-        for cell in [c for c in self.cells if c.value == 0]:
+        for cell in [c for c in self.cells if c.value is None]:
             cell.value = None
             cell.candidates = set(range(1,  self.length + 1)).difference(
-                (rc.value for rc in self.related_cells(cell, filter=lambda c: c.value != 0)))
+                (rc.value for rc in self.related_cells(cell, filter=lambda c: c.value is not None)))
 
     @staticmethod
     def remove_candidates_from_cells(cells, candidates):
         if not candidates: return False
-        cells = [c for c in cells if c.value == 0 and c.candidates and not c.candidates.isdisjoint(candidates)]
+        cells = [c for c in cells if c.value is None and c.candidates and not c.candidates.isdisjoint(candidates)]
         for cell in cells: cell.candidates -= candidates
         return len(cells) > 0
 
@@ -99,14 +99,14 @@ class Sudoku(object):
 
     def solve_singles(self):
         changed = False
-        cells = [c for c in self.cells if c.value == 0]
+        cells = [c for c in self.cells if c.value is None]
         for cell in cells:
             if len(cell.candidates) == 1:
                 candidates = cell.candidates
             else:
                 for relation in ["square", "row", "column"]:
                     candidates = cell.candidates.difference(
-                        *[rc.candidates for rc in self.related_cells(cell, [relation], filter=lambda c: c.value == 0)])
+                        *[rc.candidates for rc in self.related_cells(cell, [relation], filter=lambda c: c.value is None)])
                     if len(candidates) == 1: break
             if len(candidates) == 1:
                 cell.value = next(iter(candidates))
@@ -117,7 +117,7 @@ class Sudoku(object):
     def solve_subsets(self):
         changed = False
         for relation in ["square", "row", "column"]:
-            cell_groups = [[c for c in grp if c.value == 0] for grp in (
+            cell_groups = [[c for c in grp if c.value is None] for grp in (
                 self.squares if relation == "square"
                 else self.rows if relation == "row"
                 else self.columns
@@ -144,7 +144,7 @@ class Sudoku(object):
                                 blocking_relation = "square"
                             if blocking_relation is not None:
                                 changed = Sudoku.remove_candidates_from_cells(self.related_cells(
-                                    combo[0], [blocking_relation], filter=lambda c: c.value == 0 and c not in combo
+                                    combo[0], [blocking_relation], filter=lambda c: c.value is None and c not in combo
                                 ), candidates) or changed
         return changed
 
@@ -160,24 +160,24 @@ class Sudoku(object):
                 br
             )
             for tl in self.cells if (
-                tl.value == 0
+                tl.value is None
                 and tl.square.x < self.size.width - 1 and tl.square.y < self.size.height - 1
             )
             for br in self.cells if (
-                br.value == 0
+                br.value is None
                 and br.location.x > tl.location.x and br.location.y > tl.location.y
                 and br.square.x > tl.square.x and br.square.y > tl.square.x
             ) if (
-                self.cell(Point(tl.location.x, br.location.y)).value == 0
-                and self.cell(Point(br.location.x, tl.location.y)).value == 0
+                self.cell(Point(tl.location.x, br.location.y)).value is None
+                and self.cell(Point(br.location.x, tl.location.y)).value is None
             )
         ]
 
         for rect in rectangles:
-            row_cells = [c for c in self.row(rect.top_left.location.y) if c.value == 0 and c not in rect]
-            row_cells.extend([c for c in self.row(rect.bottom_right.location.y) if c.value == 0 and c not in rect])
-            col_cells = [c for c in self.column(rect.top_left.location.x) if c.value == 0 and c not in rect]
-            col_cells.extend([c for c in self.column(rect.bottom_right.location.x) if c.value == 0 and c not in rect])
+            row_cells = [c for c in self.row(rect.top_left.location.y) if c.value is None and c not in rect]
+            row_cells.extend([c for c in self.row(rect.bottom_right.location.y) if c.value is None and c not in rect])
+            col_cells = [c for c in self.column(rect.top_left.location.x) if c.value is None and c not in rect]
+            col_cells.extend([c for c in self.column(rect.bottom_right.location.x) if c.value is None and c not in rect])
             for relation in ["row", "column"]:
                 candidates = Cell.CANDIDATES.intersection(*[c.candidates for c in rect])
                 candidates -= set().union(*[c.candidates for c in (row_cells if relation == "row" else col_cells)])
@@ -187,10 +187,10 @@ class Sudoku(object):
 
     def solve_wings(self):
         changed = False
-        for pivot_cell in [c for c in self.cells if c.value == 0 and len(c.candidates) == 2]:
+        for pivot_cell in [c for c in self.cells if c.value is None and len(c.candidates) == 2]:
             related_cells = self.related_cells(
                 pivot_cell,
-                filter=lambda c: c.value == 0 and len(c.candidates) == 2 and c.candidates != pivot_cell.candidates)
+                filter=lambda c: c.value is None and len(c.candidates) == 2 and c.candidates != pivot_cell.candidates)
             wings = [wc for wc in it.combinations(related_cells, 2)
                                if wc[0].candidates != wc[1].candidates
                                and not wc[0].is_related(wc[1])
@@ -247,7 +247,7 @@ class Cell(object):
     CANDIDATES = set(range(1, MAX_CELL_VALUE + 1))
     CELL_VALUE_MAP = dict(list(zip(
         range(0, MAX_CELL_VALUE + 1),
-        [" "] + [str(i) for i in CANDIDATES] + [chr(code) for code in range(ord("A"), ord("A") + MAX_CELL_VALUE - 9)]
+        [" "] + [str(i) for i in range(1, 10)] + [chr(code) for code in range(ord("A"), ord("A") + MAX_CELL_VALUE - 9)]
     )))
 
     def __init__(self, board_dimension, location, value=None):
@@ -258,7 +258,7 @@ class Cell(object):
         self.value = value
 
     def __str__(self):
-        return " " if self.value == 0 else Cell.CELL_VALUE_MAP[self.value]
+        return " " if self.value is None else Cell.CELL_VALUE_MAP[self.value]
 
     def __repr__(self):
         return "Cell({}, {}, {})".format(self.board_dimension, self.location, self.value)
@@ -273,16 +273,21 @@ class Cell(object):
 
     @value.setter
     def value(self, value):
-        if value is None:
-            self._value = 0
-        elif isinstance(value, str) and not (ord("0") <= ord(value) <= ord("9")):
-            self._value = ord(value) - ord("A") + 10
+        if isinstance(value, int):
+            self._value = value
+        elif isinstance(value, str):
+            if ord("A") <= ord(value.upper()) <= ord("Z"):
+                self._value = ord(value.upper()) - ord("A") + 10
+            elif ord("1") <= ord(value) <= ord("9"):
+                self._value = int(value)
+            else:
+                self._value = None
         else:
-            self._value = int(value)
-        self.candidates = {} if self.value == 0 else {self.value}
+            self._value = None
+        self.candidates = {} if self.value is None else {self.value}
 
 
-data = (
+seed = (
     "000005790"
     "000800006"
     "005609403"
@@ -293,13 +298,20 @@ data = (
     "308002140"
     "020900605"
 )  # from app
-data = "070004000869000000000000010000010007080009600002057040958003000000001200300000789"  # from app
-data = "090600800000503400807000610000050007000790100000006300070000020040000000203061004"  # from app
-data = "000000000200601005004203900031000850600705009085000470006509200400106007000000000"  # 4831 x-wing
-data = "000000000000000805000071000000000007005090081007008593008023070039005000071060004"  # 3096 xy-wing
 
-puzzle = Sudoku(data)
+seed = "070004000869000000000000010000010007080009600002057040958003000000001200300000789"  # from app
+seed = "090600800000503400807000610000050007000790100000006300070000020040000000203061004"  # from app
+seed = "000000000200601005004203900031000850600705009085000470006509200400106007000000000"  # 4831 x-wing
+seed = "000000000000000805000071000000000007005090081007008593008023070039005000071060004"  # 3096 xy-wing
+
+seed = ("D.8.GC.9..A.E7..659C.7BF.4...3.AG....34.B8.7D..F.B.E1D..9...42.."
+        "..1D.....6..953C89EF..7.D.3A.....45.D.A68.1..E.G7...2.F34...8..D"
+        "5..B6G1DC794...E.G28E.C.F3B..4D.4...F.....E.5.G..3D..2.86AG.BFC."
+        "B7.....1.2D..G862.C.3..B..891D.....6..D...5BF9.2.DG.A..21.4..B73") # 16x16
+
+puzzle = Sudoku(seed, Dimension(4, 4))
 puzzle.print()
 puzzle.solve()
 puzzle.print()
+
 
