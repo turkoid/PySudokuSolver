@@ -3,6 +3,7 @@ import numpy as np
 from collections import namedtuple
 import itertools as it
 
+
 Point = namedtuple("Point", "x y")
 Dimension = namedtuple("Dim", "width height")
 CellRectangle = namedtuple("CellRect", "top_left top_right bottom_left bottom_right")
@@ -82,12 +83,13 @@ class Sudoku(object):
     @staticmethod
     def is_same_square(cells):
         return not cells or [c.square for c in cells].count(cells[0].square) == len(cells)
-    
+
     def solve(self):
         techniques = [
             self.solve_candidates,
             self.solve_subsets,
-            self.solve_advanced
+            self.solve_fish,
+            self.solve_wings,
         ]
         changed = True
         while changed:
@@ -146,9 +148,10 @@ class Sudoku(object):
                                 ), candidates) or changed
         return changed
 
-    def solve_advanced(self):
+    def solve_fish(self):
         changed = False
 
+        # x-wing
         rectangles = [
             CellRectangle(
                 tl,
@@ -181,6 +184,24 @@ class Sudoku(object):
                 changed = self.remove_candidates_from_cells(
                     (col_cells if relation == "row" else row_cells), candidates
                 ) or changed
+
+    def solve_wings(self):
+        changed = False
+        for pivot_cell in [c for c in self.cells if c.value == 0 and len(c.candidates) == 2]:
+            related_cells = self.related_cells(
+                pivot_cell,
+                filter=lambda c: c.value == 0 and len(c.candidates) == 2 and c.candidates != pivot_cell.candidates)
+            wings = [wc for wc in it.combinations(related_cells, 2)
+                               if wc[0].candidates != wc[1].candidates
+                               and not wc[0].is_related(wc[1])
+                               and len(pivot_cell.candidates | wc[0].candidates | wc[1].candidates) == 3]
+            for wing in wings:
+                wing_x = wing[0]
+                wing_y = wing[1]
+                cells = set(iter(self.related_cells(wing_x))) & (set(iter(self.related_cells(wing_y)))) - {pivot_cell}
+                changed = Sudoku.remove_candidates_from_cells(
+                    cells, wing_x.candidates.intersection(wing_y.candidates)) or changed
+
         return changed
 
     def __str__(self):
@@ -241,6 +262,10 @@ class Cell(object):
 
     def __repr__(self):
         return "Cell({}, {}, {})".format(self.board_dimension, self.location, self.value)
+
+    def is_related(self, other_cell):
+        cells = [self, other_cell]
+        return Sudoku.is_same_square(cells) or Sudoku.is_same_column(cells) or Sudoku.is_same_row(cells)
 
     @property
     def value(self):
