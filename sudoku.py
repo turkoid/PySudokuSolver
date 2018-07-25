@@ -1,7 +1,7 @@
-import re
 import numpy as np
 from collections import namedtuple
 import itertools as it
+import math
 
 
 Point = namedtuple("Point", "x y")
@@ -10,30 +10,49 @@ CellRectangle = namedtuple("CellRect", "top_left top_right bottom_left bottom_ri
 
 
 class Sudoku(object):
-    DEFAULT_BOARD_SIZE = Dimension(3, 3)
+    DEFAULT_SQUARE_SIZE = Dimension(3, 3)
 
-    def __init__(self, seed, size=DEFAULT_BOARD_SIZE):
-        self.seed = list(("0" * self.length**2) if seed is None else re.sub("\n| ", "", seed).upper())
-        self.size = size
-        self.length = size.width * size.height
+    def __init__(self, seed, size=DEFAULT_SQUARE_SIZE):
+        self.seed = [str(v) for v in list(seed)]
+        if size is None:
+            size = int(math.sqrt(math.sqrt(len(self.seed))))
+            self.size = Dimension(size, size)
+        else:
+            self.size = size
+        self.length = self.size.width * self.size.height
 
-        self.cells = [Cell(size, self.index_to_coord(i), value) for i, value in enumerate(seed)]
+        self.cells = [
+            Cell(self.cell_square(loc), loc, v)
+            for loc, v in (
+                (self.index_to_location(i), v)
+                for i, v in it.zip_longest(range(0, self.length**2), self.seed, fillvalue=None)
+            )
+        ]
         self.board = np.array(self.cells).reshape(self.length, self.length)
 
         self.rows = [self.row(y).tolist() for y in range(0, self.length)]
         self.columns = [self.column(x).tolist() for x in range(0, self.length)]
         self.squares = [self.square(Point(x, y)).tolist()
-                        for y in range(0, size.height)
-                        for x in range(0, size.width)]
+                        for y in range(0, self.size.height)
+                        for x in range(0, self.size.width)]
 
         self.populate_candidates()
 
     def reset(self):
-        for cell, value in zip(self.cells, list(self.seed)):
+        for cell, value in zip(self.cells, self.seed):
             cell.value = value
 
-    def cell(self, coord):
-        return self.board[coord.y][coord.x]
+    def index_to_location(self, index):
+        return Point(index % self.length, int(index / self.length))
+
+    def location_to_index(self, location):
+        return location.y * self.length + location.x
+
+    def cell_square(self, location):
+        return Point(int(location.x / self.size.height), int(location.y / self.size.width))
+
+    def cell(self, location):
+        return self.board[location.y][location.x]
 
     def column(self, x, flatten=True):
         cells = self.board[:, x]
@@ -42,10 +61,10 @@ class Sudoku(object):
     def row(self, y):
         return self.board[y]
 
-    def square(self, coord, flatten=True):
+    def square(self, location, flatten=True):
         cells = self.board[
-                coord.y * self.size.width:(coord.y + 1) * self.size.width,
-                coord.x * self.size.height:(coord.x + 1) * self.size.height]
+                location.y * self.size.width:(location.y + 1) * self.size.width,
+                location.x * self.size.height:(location.x + 1) * self.size.height]
         return cells.flatten() if flatten else cells
 
     def related_cells(self, parent, relations=["square", "row", "column"], filter=None):
@@ -85,17 +104,22 @@ class Sudoku(object):
         return not cells or [c.square for c in cells].count(cells[0].square) == len(cells)
 
     def solve(self):
+        before = str(self)
         techniques = [
             self.solve_singles,
             self.solve_subsets,
             self.solve_fish,
             self.solve_wings,
         ]
-        changed = True
-        while changed:
+        while True:
             changed = False
             for technique in techniques:
                 changed = changed or technique()
+            if not changed: break
+
+        after = str(self)
+        for before_line, after_line in zip(before.split("\n"), after.split("\n")):
+            print("%s   %s" % (before_line, after_line))
 
     def solve_singles(self):
         changed = False
@@ -185,6 +209,8 @@ class Sudoku(object):
                     (col_cells if relation == "row" else row_cells), candidates
                 ) or changed
 
+        return changed
+
     def solve_wings(self):
         changed = False
         for pivot_cell in [c for c in self.cells if c.value is None and len(c.candidates) == 2]:
@@ -210,7 +236,7 @@ class Sudoku(object):
         for x in range(0, self.length):
             if x % self.size.height == 0: column_labels.append("  ")
             column_labels.append("{} ".format(chr(ord("A") + x)))
-        column_labels.append("   \n")
+        column_labels.append("    \n")
 
         line = list()
         line.append("   ")
@@ -235,11 +261,8 @@ class Sudoku(object):
     def print(self):
         print(str(self))
 
-    def index_to_coord(self, index):
-        return Point(index % self.length, int(index / self.length))
-
-    def coord_to_index(self, coord):
-        return coord.y * self.length + coord.x
+    def calculate_seed(self):
+        return "".join("." if c.value is None else str(c) for c in self.cells)
 
 
 class Cell(object):
@@ -250,10 +273,9 @@ class Cell(object):
         [" "] + [str(i) for i in range(1, 10)] + [chr(code) for code in range(ord("A"), ord("A") + MAX_CELL_VALUE - 9)]
     )))
 
-    def __init__(self, board_dimension, location, value=None):
-        self.board_dimension = board_dimension
+    def __init__(self, square, location, value=None):
+        self.square = square
         self.location = location
-        self.square = Point(int(location.x / board_dimension.height), int(location.y / board_dimension.width))
         self.candidates = None
         self.value = value
 
@@ -261,7 +283,7 @@ class Cell(object):
         return " " if self.value is None else Cell.CELL_VALUE_MAP[self.value]
 
     def __repr__(self):
-        return "Cell({}, {}, {})".format(self.board_dimension, self.location, self.value)
+        return "Cell({}, {}, {})".format(self.square, self.location, self.value)
 
     def is_related(self, other_cell):
         cells = [self, other_cell]
@@ -275,7 +297,7 @@ class Cell(object):
     def value(self, value):
         if isinstance(value, int):
             self._value = value
-        elif isinstance(value, str):
+        elif isinstance(value, str) and len(value) == 1:
             if ord("A") <= ord(value.upper()) <= ord("Z"):
                 self._value = ord(value.upper()) - ord("A") + 10
             elif ord("1") <= ord(value) <= ord("9"):
@@ -287,6 +309,7 @@ class Cell(object):
         self.candidates = {} if self.value is None else {self.value}
 
 
+samples = list()
 seed = (
     "000005790"
     "000800006"
@@ -296,22 +319,34 @@ seed = (
     "080094300"
     "050001070"
     "308002140"
-    "020900605"
-)  # from app
+    "020900605")  # from app
+samples.append(Sudoku(seed))
 
 seed = "070004000869000000000000010000010007080009600002057040958003000000001200300000789"  # from app
+samples.append(Sudoku(seed))
+
 seed = "090600800000503400807000610000050007000790100000006300070000020040000000203061004"  # from app
+samples.append(Sudoku(seed))
+
 seed = "000000000200601005004203900031000850600705009085000470006509200400106007000000000"  # 4831 x-wing
+samples.append(Sudoku(seed))
+
 seed = "000000000000000805000071000000000007005090081007008593008023070039005000071060004"  # 3096 xy-wing
+samples.append(Sudoku(seed, None))
 
 seed = ("D.8.GC.9..A.E7..659C.7BF.4...3.AG....34.B8.7D..F.B.E1D..9...42.."
         "..1D.....6..953C89EF..7.D.3A.....45.D.A68.1..E.G7...2.F34...8..D"
         "5..B6G1DC794...E.G28E.C.F3B..4D.4...F.....E.5.G..3D..2.86AG.BFC."
         "B7.....1.2D..G862.C.3..B..891D.....6..D...5BF9.2.DG.A..21.4..B73")  # 16x16
+samples.append(Sudoku(seed, None))
 
-puzzle = Sudoku(seed, Dimension(4, 4))
-puzzle.print()
-puzzle.solve()
-puzzle.print()
+seed = (".7.81..61...28.5"
+        "...7.....6...3.2"
+        "..45.....3....41"
+        "...1.6...256.7.4")
+samples.append(Sudoku(seed, Dimension(2, 4)))
+
+for sample in samples:
+    sample.solve()
 
 
