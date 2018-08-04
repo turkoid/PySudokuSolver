@@ -3,12 +3,12 @@ from collections import namedtuple
 import itertools as it
 import math
 from enum import Enum
+from collections import Counter
 
 
 # NAMED TUPLES
 Point = namedtuple("Point", "x y")
 Dimension = namedtuple("Dim", "width height")
-CellRectangle = namedtuple("CellRect", "top_left top_right bottom_left bottom_right")
 
 
 # CONSTANTS
@@ -64,9 +64,9 @@ class Sudoku(object):
         ]
         self.board = np.array(self.cells).reshape(self.length, self.length)
 
-        self.rows = [self.row(y).tolist() for y in range(0, self.length)]
-        self.columns = [self.column(x).tolist() for x in range(0, self.length)]
-        self.squares = [self.square(Point(x, y)).tolist()
+        self.rows = [self.row(y) for y in range(0, self.length)]
+        self.columns = [self.column(x) for x in range(0, self.length)]
+        self.squares = [self.square(Point(x, y))
                         for y in range(0, self.size.height)
                         for x in range(0, self.size.width)]
 
@@ -123,11 +123,10 @@ class Sudoku(object):
         Returns the cell at location
 
         :param location: The x, y location within all the cells
-        :type location: Point
+        :type location: Union[Point, str]
         :return: The Cell
         :rtype: Cell
         """
-
 
         return self.board[location.y][location.x]
 
@@ -144,7 +143,7 @@ class Sudoku(object):
         """
 
         cells = self.board[:, x]
-        return cells.flatten() if flatten else cells
+        return (cells.flatten() if flatten else cells).tolist()
 
     def row(self, y):
         """
@@ -155,7 +154,7 @@ class Sudoku(object):
         :rtype: list
         """
 
-        return self.board[y]
+        return self.board[y].tolist()
 
     def square(self, location, flatten=True):
         """
@@ -172,7 +171,7 @@ class Sudoku(object):
         cells = self.board[
                 location.y * self.size.width:(location.y + 1) * self.size.width,
                 location.x * self.size.height:(location.x + 1) * self.size.height]
-        return cells.flatten() if flatten else cells
+        return (cells.flatten() if flatten else cells).tolist()
 
     def related_cells(self, parent, relations=["square", "row", "column"], filter=None):
         """
@@ -223,7 +222,7 @@ class Sudoku(object):
         Test to see if all cells are in the same column
 
         :param cells: Cells to test
-        :type cells: list
+        :type cells: Iterable
         :return: True if same column, false otherwise
         :rtype: bool
         """
@@ -236,7 +235,7 @@ class Sudoku(object):
         Test to see if all cells are in the same row
 
         :param cells: Cells to test
-        :type cells: list
+        :type cells: Iterable
         :return: True if same row, false otherwise
         :rtype: bool
         """
@@ -249,7 +248,7 @@ class Sudoku(object):
         Test to see if all cells are in the same square
 
         :param cells: Cells to test
-        :type cells: list
+        :type cells: Iterable
         :return: True if same square, false otherwise
         :rtype: bool
         """
@@ -273,6 +272,7 @@ class Sudoku(object):
             changed = False
             for technique in techniques:
                 changed = changed or technique()
+            changed = False
             if not changed: break
 
         after = str(self)
@@ -289,7 +289,7 @@ class Sudoku(object):
         Naked single - Cell contains exactly one candidate
         Hidden single - The cell within the related cells can only contain this candidate
 
-        :return: True if changes where made to any cell
+        :return: True if changes where made to any cell, otherwise False
         :rtype: bool
         """
 
@@ -331,35 +331,35 @@ class Sudoku(object):
         for relation in ["square", "row", "column"]:
             # this is filtering the multi-dimensional array of rows, columns, or squares so that each sub-array contains
             # only cells with no value set
-            cell_groups = [[c for c in grp if c.value is None] for grp in (
+            cell_groups = [grp for grp in [[c for c in grp if c.value is None] for grp in (
                 self.squares if relation == "square"
                 else self.rows if relation == "row"
                 else self.columns
-            )]
+            )] if grp]
             for cells in cell_groups:
                 # we only check for subsets of at least size 2 and 1 less then the total number cells
-                for combo_length in range(2, len(cells) - 1):
-                    for combo in it.combinations(cells, combo_length):
-                        other_cells = [c for c in cells if c not in combo]
-                        candidates = set().union(*[c.candidates for c in combo])
+                for subset_length in range(2, len(cells) - 1):
+                    for subset in it.combinations(cells, subset_length):
+                        other_cells = [c for c in cells if c not in subset]
+                        candidates = set().union(*[c.candidates for c in subset])
                         candidates -= set().union(*[c.candidates for c in other_cells])
-                        if len(candidates) == combo_length:
+                        if len(candidates) == subset_length:
                             changed = Sudoku.remove_candidates_from_cells(
-                                combo, candidates.symmetric_difference(
-                                    set().union(*[c.candidates for c in combo])
+                                subset, candidates.symmetric_difference(
+                                    set().union(*[c.candidates for c in subset])
                                 )) or changed
                             changed = Sudoku.remove_candidates_from_cells(other_cells, candidates) or changed
                             blocking_relation = None
                             if relation == "square":
-                                if Sudoku.is_same_column(combo):
+                                if Sudoku.is_same_column(subset):
                                     blocking_relation = "column"
-                                elif Sudoku.is_same_row(combo):
+                                elif Sudoku.is_same_row(subset):
                                     blocking_relation = "row"
-                            elif Sudoku.is_same_square(combo):
+                            elif Sudoku.is_same_square(subset):
                                 blocking_relation = "square"
                             if blocking_relation is not None:
                                 changed = Sudoku.remove_candidates_from_cells(self.related_cells(
-                                    combo[0], [blocking_relation], filter=lambda c: c.value is None and c not in combo
+                                    subset[0], [blocking_relation], filter=lambda c: c.value is None and c not in subset
                                 ), candidates) or changed
         return changed
 
@@ -369,48 +369,72 @@ class Sudoku(object):
 
         http://hodoku.sourceforge.net/en/tech_fishb.php
 
-        X-Wing - an x-wing is a special type of fish
-        Swordfish - not yet implemented
+        X-Wing - an x-wing is a special type of 2x2 fish
+        Swordfish - 3x3 fish
+        Jellyfish - 4x4 fish
 
-        :return: True if changes where made to any cell
+        :return: True if changes where made to any cell, otherwise False
         :rtype: bool
         """
 
         changed = False
 
-        # finds all groups of 4 non-valued cells that form a rectangle
-        rectangles = [
-            CellRectangle(
-                tl,
-                self.cell(Point(br.location.x, tl.location.y)),
-                self.cell(Point(tl.location.x, br.location.y)),
-                br
-            )
-            for tl in self.cells if (
-                tl.value is None
-                and tl.square.x < self.size.width - 1 and tl.square.y < self.size.height - 1
-            )
-            for br in self.cells if (
-                br.value is None
-                and br.location.x > tl.location.x and br.location.y > tl.location.y
-                and br.square.x > tl.square.x and br.square.y > tl.square.x
-            ) if (
-                self.cell(Point(tl.location.x, br.location.y)).value is None
-                and self.cell(Point(br.location.x, tl.location.y)).value is None
-            )
-        ]
-
-        for rect in rectangles:
-            row_cells = [c for c in self.row(rect.top_left.location.y) if c.value is None and c not in rect]
-            row_cells.extend([c for c in self.row(rect.bottom_right.location.y) if c.value is None and c not in rect])
-            col_cells = [c for c in self.column(rect.top_left.location.x) if c.value is None and c not in rect]
-            col_cells.extend([c for c in self.column(rect.bottom_right.location.x) if c.value is None and c not in rect])
-            for relation in ["row", "column"]:
-                candidates = ALL_CANDIDATES.intersection(*[c.candidates for c in rect])
-                candidates -= set().union(*[c.candidates for c in (row_cells if relation == "row" else col_cells)])
-                changed = self.remove_candidates_from_cells(
-                    (col_cells if relation == "row" else row_cells), candidates
-                ) or changed
+        for relation in ["row", "column"]:
+            print(relation)
+            # filter out cells with values
+            cell_grouping = [
+                [c for c in grp if c.value is None]
+                for grp in (self.rows if relation == "row" else self.columns)
+            ]
+            # finds naked or hidden subsetS
+            group_sets = [grp for grp in [
+                [
+                    subset
+                    for subset_length in range(2, len(grp) + 1)
+                    for subset in it.combinations(grp, subset_length)
+                    if len(ALL_CANDIDATES.intersection(*[c.candidates for c in subset]) -
+                           set().union(*[c.candidates for c in grp if c not in subset])) >= 1
+                ]
+                for grp in cell_grouping
+            ] if grp]
+            if len(group_sets) < 2: return False
+            # this will find all combinations of subsets from each row/column
+            # then it only allows where they have at least one common candidate
+            # and also that there is at least 2 intersections of each cell
+            fishes = [
+                [c for subset in fish for c in subset]
+                for fish_size in range(2, 3)
+                for fish_stock in it.combinations(group_sets, fish_size)
+                for fish in it.product(*fish_stock)
+                if len(ALL_CANDIDATES.intersection(*[c.candidates for subset in fish for c in subset])) >= 1
+                and len(
+                    [cnt for _, cnt in
+                     Counter([
+                         c.location.x if relation == "row" else c.location.y
+                         for subset in fish
+                         for c in subset]
+                     ).items() if cnt == 1]
+                ) == 0
+            ]
+            # lets do the magic
+            for fish in fishes:
+                base_indices = {c.location.x if relation == "column" else c.location.y for c in fish}
+                cover_indices = {c.location.y if relation == "column" else c.location.x for c in fish}
+                candidates = ALL_CANDIDATES.intersection(*[c.candidates for c in fish])
+                candidates -= set().union(*[
+                    c.candidates
+                    for index in base_indices
+                    for c in (self.column(index) if relation == "column" else self.row(index))
+                    if c.value is None and c not in fish
+                ])
+                cells = [
+                    c
+                    for index in cover_indices
+                    for c in (self.row(index) if relation == "column" else self.column(index))
+                    if c.value is None and c not in fish
+                ]
+                print("remove %s from %s" % (candidates, cells))
+                changed = self.remove_candidates_from_cells(cells, candidates) or changed
 
         return changed
 
@@ -447,7 +471,7 @@ class Sudoku(object):
         The string representation of the board with row and column labels
 
         :return: Pretty board output
-        :rtype: string
+        :rtype: str
         """
 
         # since strings are immutable, this is my attempt at emulating StringBuffer in Java
@@ -491,7 +515,7 @@ class Sudoku(object):
         Returns a string representation of the cells with values.
 
         :return: The seed
-        :rtype: string
+        :rtype: str
         """
 
         return "".join("." if c.value is None else str(c) for c in self.cells)
@@ -508,7 +532,7 @@ class Cell(object):
         :type square: Point
         :param value: The initial value of the cell. If a string is passed it's converted to it's int value based
         on CELL_VALUE_MAP
-        :type value: int/char
+        :type value: Union[int,
         """
 
         self.square = square
@@ -521,7 +545,7 @@ class Cell(object):
         The string representation of the cell's value, blank space if no value
 
         :return: The cell's value
-        :rtype: string
+        :rtype: str
         """
 
         return " " if self.value is None else CELL_VALUE_MAP[self.value]
@@ -534,7 +558,8 @@ class Cell(object):
         :rtype: string
         """
 
-        return "Cell({}, {}, {})".format(self.square, self.location, self.value)
+        return self.var_to_string(self.location)
+        #return "Cell({}, {}, {})".format(self.square, self.location, self.value)
 
     def var_to_string(self, var, options=None):
         """
@@ -544,9 +569,9 @@ class Cell(object):
         :param var: square, location, candidates, or value
         :type var: reference
         :param options: formatting options for the variable
-        :type options: string
+        :type options: str
         :return: The formatted string
-        :rtype: string
+        :rtype: str
         """
 
         if var is self.square:
@@ -592,7 +617,7 @@ class Cell(object):
         Setter method for value. Allows for int, string input. Strings are converted to int based on the CELL_VALUE_MAP
 
         :param value: value to set
-        :type value: int/string
+        :type value: Union[int, str]
         :return:
         """
         if isinstance(value, int):
@@ -645,6 +670,19 @@ seed = (".7.81..61...28.5"
         "..45.....3....41"
         "...1.6...256.7.4")
 samples.append(Sudoku(seed, Dimension(2, 4)))
+
+# x-wing test
+samples = list()
+seed = (".41729.3."
+        "769..34.2"
+        ".3264.719"
+        "4.39..17."
+        "6.7..49.3"
+        "19537..24"
+        "214567398"
+        "376.9.541"
+        "958431267")
+samples.append(Sudoku(seed))
 
 for sample in samples:
     sample.solve()
