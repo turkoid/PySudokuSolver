@@ -6,14 +6,16 @@ from enum import Enum
 from collections import Counter
 import re
 
+
 # NAMED TUPLES
 Point = namedtuple("Point", "x y")
 Dimension = namedtuple("Dim", "width height")
+Technique = namedtuple("Technique Variation", "type, size")
 
 
 # CONSTANTS
-# the default dimension of a single square (not the board)
-DEFAULT_SQUARE_SIZE = Dimension(3, 3)
+# the default dimension of a single box (not the board)
+DEFAULT_BOX_SIZE = Dimension(3, 3)
 # The max is 25 only because of column labeling (A-Z). If i didn't output to only console, this limit could be increased
 MAX_CELL_VALUE = 25
 # A constant that stores all possible candidates
@@ -25,29 +27,33 @@ CELL_VALUE_MAP = dict(list(zip(
 )))
 
 
-# Enum for technique archetypes
-class Technique(Enum):
+class TechniqueArchetype(Enum):
+    """
+    Enum for technique archetypes
+    """
+
     NAKED = 0
     HIDDEN = 1
     POINTING = 2
-    FISH = 3
-    WING = 4
+    CLAIMING = 3
+    FISH = 4
+    WING = 5
 
 
 class Sudoku(object):
-    def __init__(self, seed, size=DEFAULT_SQUARE_SIZE):
+    def __init__(self, seed, size=DEFAULT_BOX_SIZE):
         """
         Initializes the sudoku board
 
         :param seed: The starting values for the board. Use the alpha equivalent for double digit numbers
         :type seed: Iterable
-        :param size: Dimension of the square, not the board. Defaults to 3x3
+        :param size: Dimension of the box, not the board. Defaults to 3x3
         :type size: Dimension
         """
 
         self.seed = [str(v) for v in list(seed)]
         if size is None:
-            # Try to determine the size of square by taking the 4th root of the seed length
+            # Try to determine the size of box by taking the 4th root of the seed length
             size = int(math.sqrt(math.sqrt(len(self.seed))))
             self.size = Dimension(size, size)
         else:
@@ -56,7 +62,7 @@ class Sudoku(object):
 
         # Create each cell based on the seed value
         self.cells = [
-            Cell(self.cell_square(loc), loc, v)
+            Cell(self.cell_box(loc), loc, v)
             for loc, v in (
                 (self.index_to_location(i), v)
                 for i, v in it.zip_longest(range(0, self.length**2), self.seed, fillvalue=None)
@@ -66,9 +72,9 @@ class Sudoku(object):
 
         self.rows = [self.row(y) for y in range(0, self.length)]
         self.columns = [self.column(x) for x in range(0, self.length)]
-        self.squares = [self.square(Point(x, y))
-                        for y in range(0, self.size.height)
-                        for x in range(0, self.size.width)]
+        self.boxes = [self.box(Point(x, y))
+                      for y in range(0, self.size.height)
+                      for x in range(0, self.size.width)]
 
         self.populate_candidates()
 
@@ -106,13 +112,13 @@ class Sudoku(object):
 
         return location.y * self.length + location.x
 
-    def cell_square(self, location):
+    def cell_box(self, location):
         """
-        The square the cell is in
+        The box the cell is in
 
         :param location: The x,y location of the cell
         :type location: Point
-        :return: The x,y location of the square containing the cell
+        :return: The x,y location of the box containing the cell
         :rtype: Point
         """
 
@@ -160,15 +166,15 @@ class Sudoku(object):
 
         return self.board[y].tolist()
 
-    def square(self, location, flatten=True):
+    def box(self, location, flatten=True):
         """
-        The group of cells at square location
+        The group of cells at box location
 
-        :param location: The x,y location of the square
+        :param location: The x,y location of the box
         :type location: Point
         :param flatten: Flattens the MxN array into a (M*N)x1 array
         :type flatten: bool
-        :return: Square cells
+        :return: box cells
         :rtype: list
         """
 
@@ -177,29 +183,31 @@ class Sudoku(object):
                 location.x * self.size.height:(location.x + 1) * self.size.height]
         return (cells.flatten() if flatten else cells).tolist()
 
-    def related_cells(self, parent, relations=["square", "row", "column"], filter=None):
+    def related_cells(self, parent, relations=None, cell_filter=None):
         """
         The group of cells that share a relation to the parent cell
 
         :param parent: The cell to find its relatives
         :type parent: Cell
-        :param relations: The relationships to search for
-        :type relations: Iterable
-        :param filter: Function used to filter out unwanted cells
-        :type filter: Function
+        :param relations: The relationships to search for. If nothing is passed, it defaults to all
+        :type relations: set
+        :param cell_filter: Function used to filter out unwanted cells
+        :type cell_filter: Function
         :return: Related cells
         :rtype: list
         """
 
-        cells = set()
-        if "square" in relations:
-            cells |= set(self.square(parent.square))
+        if relations is None: relations = {"box", "row", "box"}
+
+        cells = {}
+        if "box" in relations:
+            cells |= set(self.box(parent.box))
         if "row" in relations:
             cells |= set(self.row(parent.location.y))
         if "column" in relations:
             cells |= set(self.column(parent.location.x))
         cells -= {parent}
-        return list(cells) if filter is None else [c for c in cells if filter(c)]
+        return list(cells) if cell_filter is None else [c for c in cells if cell_filter(c)]
 
     def populate_candidates(self):
         """
@@ -211,14 +219,7 @@ class Sudoku(object):
         for cell in [c for c in self.cells if c.value is None]:
             cell.value = None
             cell.candidates = set(range(1,  self.length + 1)).difference(
-                (rc.value for rc in self.related_cells(cell, filter=lambda c: c.value is not None)))
-
-    @staticmethod
-    def remove_candidates_from_cells(cells, candidates):
-        if not candidates: return False
-        cells = [c for c in cells if c.value is None and c.candidates and not c.candidates.isdisjoint(candidates)]
-        for cell in cells: cell.candidates -= candidates
-        return len(cells) > 0
+                (rc.value for rc in self.related_cells(cell, cell_filter=lambda c: c.value is not None)))
 
     @staticmethod
     def is_same_column(cells):
@@ -247,17 +248,44 @@ class Sudoku(object):
         return not cells or [c.location.y for c in cells].count(cells[0].location.y) == len(cells)
 
     @staticmethod
-    def is_same_square(cells):
+    def is_same_box(cells):
         """
-        Test to see if all cells are in the same square
+        Test to see if all cells are in the same box
 
         :param cells: Cells to test
         :type cells: Iterable
-        :return: True if same square, false otherwise
+        :return: True if same box, false otherwise
         :rtype: bool
         """
 
-        return not cells or [c.square for c in cells].count(cells[0].square) == len(cells)
+        return not cells or [c.box for c in cells].count(cells[0].box) == len(cells)
+
+    @staticmethod
+    def remove_candidates_from_cells(cells, candidates):
+        if not candidates: return False
+        cells = [c for c in cells if c.value is None and c.candidates and not c.candidates.isdisjoint(candidates)]
+        for cell in cells: cell.candidates -= candidates
+        return len(cells) > 0
+
+    def apply_technique(self, technique, cells, values, info=None):
+        """
+        Applies the technique given to the given cells
+
+        :param technique: The technique to use
+        :type technique: Technique
+        :param cells: The cells
+        :type cells: iterable
+        :param values: The values to use
+        :type values: iterable
+        :param info: Extra information to help format the log entry
+        :type info: str
+        :return: True if a cell's value changed or any cell candidates
+        :rtype: bool
+        """
+
+        if technique.type == TechniqueArchetype.NAKED:
+            if technique.size == 1:
+                "Naked Subset[{size}] in cell ({cells})"
 
     def solve(self):
         """
@@ -302,9 +330,11 @@ class Sudoku(object):
             if len(cell.candidates) == 1:
                 candidates = cell.candidates
             else:
-                for relation in ["square", "row", "column"]:
+                for relation in {"box", "row", "column"}:
                     candidates = cell.candidates.difference(
-                        *[rc.candidates for rc in self.related_cells(cell, [relation], filter=lambda c: c.value is None)])
+                        *[rc.candidates
+                          for rc in self.related_cells(cell, {relation}, cell_filter=lambda c: c.value is None)]
+                    )
                     if len(candidates) == 1: break
             if len(candidates) == 1:
                 cell.value = next(iter(candidates))
@@ -324,18 +354,18 @@ class Sudoku(object):
         Hidden subset - Similar to naked subset, except the number of all candidates does not have to equal the subset
         size
         Blocking subset - A special variation of either naked or hidden subsets. When the subset is the same row, column
-        or square, then the related cells cannot contain the subsets' candidates
+        or box, then the related cells cannot contain the subsets' candidates
 
         :return: True if changes where made to any cell
         :rtype: bool
         """
 
         changed = False
-        for relation in ["square", "row", "column"]:
-            # this is filtering the multi-dimensional array of rows, columns, or squares so that each sub-array contains
+        for relation in {"box", "row", "column"}:
+            # this is filtering the multi-dimensional array of rows, columns, or boxes so that each sub-array contains
             # only cells with no value set
             cell_groups = [grp for grp in [[c for c in grp if c.value is None] for grp in (
-                self.squares if relation == "square"
+                self.boxes if relation == "box"
                 else self.rows if relation == "row"
                 else self.columns
             )] if grp]
@@ -353,16 +383,16 @@ class Sudoku(object):
                                 )) or changed
                             changed = Sudoku.remove_candidates_from_cells(other_cells, candidates) or changed
                             blocking_relation = None
-                            if relation == "square":
+                            if relation == "box":
                                 if Sudoku.is_same_column(subset):
                                     blocking_relation = "column"
                                 elif Sudoku.is_same_row(subset):
                                     blocking_relation = "row"
-                            elif Sudoku.is_same_square(subset):
-                                blocking_relation = "square"
+                            elif Sudoku.is_same_box(subset):
+                                blocking_relation = "box"
                             if blocking_relation is not None:
                                 changed = Sudoku.remove_candidates_from_cells(self.related_cells(
-                                    subset[0], [blocking_relation], filter=lambda c: c.value is None and c not in subset
+                                    subset[0], {blocking_relation}, cell_filter=lambda c: c.value is None and c not in subset
                                 ), candidates) or changed
         return changed
 
@@ -382,7 +412,7 @@ class Sudoku(object):
 
         changed = False
 
-        for relation in ["row", "column"]:
+        for relation in {"row", "column"}:
             # filter out cells with values
             cell_grouping = [
                 [c for c in grp if c.value is None]
@@ -453,7 +483,9 @@ class Sudoku(object):
         for pivot_cell in [c for c in self.cells if c.value is None and len(c.candidates) == 2]:
             related_cells = self.related_cells(
                 pivot_cell,
-                filter=lambda c: c.value is None and len(c.candidates) == 2 and c.candidates != pivot_cell.candidates)
+                cell_filter=lambda c:
+                c.value is None and len(c.candidates) == 2 and c.candidates != pivot_cell.candidates
+            )
             wings = [wc for wc in it.combinations(related_cells, 2)
                      if wc[0].candidates != wc[1].candidates
                      and not wc[0].is_related(wc[1])
@@ -523,20 +555,20 @@ class Sudoku(object):
 
 
 class Cell(object):
-    def __init__(self, square, location, value=None):
+    def __init__(self, box, location, value=None):
         """
         Initializes the cell object
 
-        :param square: The square the cell is located in
-        :type square: Point
+        :param box: The box the cell is located in
+        :type box: Point
         :param location: The cells location in the board
-        :type square: Point
+        :type box: Point
         :param value: The initial value of the cell. If a string is passed it's converted to it's int value based
         on CELL_VALUE_MAP
         :type value: Union[int,
         """
 
-        self.square = square
+        self.box = box
         self.location = location
         self.candidates = {}
         self.value = value
@@ -559,13 +591,13 @@ class Cell(object):
         :rtype: string
         """
 
-        return "Cell({}, {}, {})".format(self.square, self.location, self.value)
+        return "Cell({}, {}, {})".format(self.box, self.location, self.value)
 
     def var_to_string(self, var, options=None):
         """
         Method returns a formatted string of the cell's variable
 
-        :param var: square, location, candidates, or value
+        :param var: box, location, candidates, or value
         :type var: str
         :param options: formatting options for the variable
         :type options: str
@@ -573,8 +605,8 @@ class Cell(object):
         :rtype: str
         """
 
-        if var == "square":
-            return "[{sq.x}, {sq.y}]".format(sq=self.square)
+        if var == "box":
+            return "[{sq.x}, {sq.y}]".format(sq=self.box)
         elif var == "location":
             if options == "r1c1":
                 return "r{}c{}".format(self.location.y + 1, self.location.x + 1)
@@ -589,7 +621,7 @@ class Cell(object):
 
     def is_related(self, other_cell):
         """
-        Test to see if the other cell is in the same row, column, or square
+        Test to see if the other cell is in the same row, column, or box
         :param other_cell: The cell to test
         :type other_cell: Cell
         :return: True if related, false otherwise
@@ -597,7 +629,7 @@ class Cell(object):
         """
 
         cells = [self, other_cell]
-        return Sudoku.is_same_square(cells) or Sudoku.is_same_column(cells) or Sudoku.is_same_row(cells)
+        return Sudoku.is_same_box(cells) or Sudoku.is_same_column(cells) or Sudoku.is_same_row(cells)
 
     @property
     def value(self):
@@ -658,6 +690,24 @@ class Cell(object):
 
         self._prev_candidates = {} if self._candidates is None else self._candidates
         self._candidates = {} if value is None else value
+
+    def is_var_changed(self, var):
+        """
+        Tests whether the given var has changed.
+        Only works for "value" and "candidates"
+
+        :param var: Variable to test
+        :type var: str
+        :return: True if changed, False otherwise and the changed var
+        :rtype: bool, Union[int, set]
+        """
+
+        if var == "value":
+            return self.value != self._prev_value, self._prev_value
+        elif var == "candidates":
+            return self.candidates != self._prev_candidates, self._prev_candidates
+        else:
+            return False, None
 
 
 samples = list()
