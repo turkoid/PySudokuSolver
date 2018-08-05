@@ -538,7 +538,7 @@ class Cell(object):
 
         self.square = square
         self.location = location
-        self.candidates = None
+        self.candidates = {}
         self.value = value
 
     def __str__(self):
@@ -566,26 +566,26 @@ class Cell(object):
         Method returns a formatted string of the cell's variable
 
         :param var: square, location, candidates, or value
-        :type var: reference
+        :type var: str
         :param options: formatting options for the variable
         :type options: str
         :return: The formatted string
         :rtype: str
         """
 
-        if var is self.square:
-            return "[{sq.x}, {sq.y}]".format(sq=var)
-        elif var is self.location:
+        if var == "square":
+            return "[{sq.x}, {sq.y}]".format(sq=self.square)
+        elif var == "location":
             if options == "r1c1":
                 return "r{}c{}".format(self.location.y + 1, self.location.x + 1)
             elif options == "R1C1":
                 return "R{}C{}".format(self.location.y + 1, self.location.x + 1)
             else:
                 return "{}{}".format(chr(ord("A") + self.location.x), self.location.y + 1)
-        elif var is self.candidates:
-            return ", ".join(str(v) for v in self.candidates)
-        elif var is self.value:
-            return str(var)
+        elif var == "candidates":
+            return "{{{}}}".format(", ".join(CELL_VALUE_MAP[v] for v in self.candidates))
+        elif var == "value":
+            return str(var) if self.value is not None or options is None else options
 
     def is_related(self, other_cell):
         """
@@ -602,7 +602,7 @@ class Cell(object):
     @property
     def value(self):
         """
-        Cell value wrapper
+        Cell variable wrapper
 
         :return: value
         :rtype: int
