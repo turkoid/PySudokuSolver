@@ -614,11 +614,14 @@ class Cell(object):
     def value(self, value):
         """
         Setter method for value. Allows for int, string input. Strings are converted to int based on the CELL_VALUE_MAP
+        Stores the previous value to track changes
 
         :param value: value to set
         :type value: Union[int, str]
         :return:
         """
+
+        self._prev_value = self._value
         if isinstance(value, int):
             self._value = value
         elif isinstance(value, str) and len(value) == 1:
@@ -631,6 +634,30 @@ class Cell(object):
         else:
             self._value = None
         self.candidates = {} if self.value is None else {self.value}
+
+    @property
+    def candidates(self):
+        """
+        Candidates variables wrapper
+
+        :return: set
+        """
+
+        return self._candidates
+
+    @candidates.setter
+    def candidates(self, value):
+        """
+        Candidate setter wrapper
+        Stores the previous value to track changes
+
+        :param value: The candidates
+        :type value: set
+        :return:
+        """
+
+        self._prev_candidates = {} if self._candidates is None else self._candidates
+        self._candidates = {} if value is None else value
 
 
 samples = list()
