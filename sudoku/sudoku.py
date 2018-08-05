@@ -1,55 +1,11 @@
+from sudoku.constants import *
+from sudoku.enums import *
+from sudoku.tuples import *
 import numpy as np
-from collections import namedtuple
 import itertools as it
 import math
-from enum import Enum
 from collections import Counter
 import re
-
-
-# NAMED TUPLES
-Point = namedtuple("Point", "x y")
-Dimension = namedtuple("Dim", "width height")
-Technique = namedtuple("Technique Variation", "type size")
-
-# CONSTANTS
-# the default dimension of a single box (not the board)
-DEFAULT_BOX_SIZE = Dimension(3, 3)
-# The max is 25 only because of column labeling (A-Z). If i didn't output to only console, this limit could be increased
-MAX_CELL_VALUE = 25
-# A constant that stores all possible candidates
-ALL_CANDIDATES = set(range(1, MAX_CELL_VALUE + 1))
-# Dictionary from cell value to single character (after 9, alpha characters are used)
-CELL_VALUE_MAP = dict(list(zip(
-    range(0, MAX_CELL_VALUE + 1),
-    [" "] + [str(i) for i in range(1, 10)] + [chr(code) for code in range(ord("A"), ord("A") + MAX_CELL_VALUE - 9)]
-)))
-
-
-class CellRelation(Enum):
-    BOX = 0,
-    ROW = 1,
-    COLUMN = 2
-
-    @classmethod
-    def all(cls):
-        return {r for r in cls}
-    
-    
-class TechniqueArchetype(Enum):
-    NAKED = 0
-    HIDDEN = 1
-    POINTING = 2
-    CLAIMING = 3
-    FISH = 4
-    WING = 5
-
-
-class ActionOperation(Enum):
-    SOLVE = 0
-    REMOVE = 1
-    EXCLUSIVE = 2
-    POPULATE = 3
 
 
 class Sudoku(object):
@@ -71,6 +27,7 @@ class Sudoku(object):
         else:
             self.size = size
         self.length = self.size.width * self.size.height
+        self.ALL_CANDIDATES = set(range(1, self.length + 1))
 
         # Create each cell based on the seed value
         self.cells = [
@@ -89,7 +46,7 @@ class Sudoku(object):
                       for x in range(0, self.size.width)]
 
         self.populate_candidates()
-        self.solveSteps = []
+        self.solve_steps = []
 
     def reset(self):
         """
@@ -222,18 +179,6 @@ class Sudoku(object):
         cells -= {parent}
         return list(cells) if cell_filter is None else [c for c in cells if cell_filter(c)]
 
-    def populate_candidates(self):
-        """
-        Populates all cells with no value with possible candidates
-
-        :return:
-        """
-
-        for cell in [c for c in self.cells if c.value is None]:
-            cell.value = None
-            cell.candidates = set(range(1,  self.length + 1)).difference(
-                (rc.value for rc in self.related_cells(cell, cell_filter=lambda c: c.value is not None)))
-
     @staticmethod
     def is_same_column(cells):
         """
@@ -279,6 +224,19 @@ class Sudoku(object):
         cells = [c for c in cells if c.value is None and not c.candidates.isdisjoint(candidates)]
         for cell in cells: cell.candidates -= candidates
         return len(cells) > 0
+
+    def populate_candidates(self):
+        """
+        Populates all cells with no value with possible candidates
+
+        :return:
+        """
+
+        for cell in [c for c in self.cells if c.value is None]:
+            cell.candidates = self.ALL_CANDIDATES.difference(
+                (rc.value for rc in self.related_cells(cell, cell_filter=lambda c: c.value is not None)))
+            if cell.var_changed("candidates"):
+                self.solve_steps.append(Step(TechniqueArchetype))
 
     def apply_technique(self, technique, cells, values, info=None):
         """
@@ -438,7 +396,7 @@ class Sudoku(object):
                     subset
                     for subset_length in range(2, len(grp) + 1)
                     for subset in it.combinations(grp, subset_length)
-                    if len(ALL_CANDIDATES.intersection(*[c.candidates for c in subset]) -
+                    if len(self.ALL_CANDIDATES.intersection(*[c.candidates for c in subset]) -
                            set().union(*[c.candidates for c in grp if c not in subset])) >= 1
                 ]
                 for grp in cell_grouping
@@ -452,7 +410,7 @@ class Sudoku(object):
                 for fish_size in range(2, 3)
                 for fish_stock in it.combinations(group_sets, fish_size)
                 for fish in it.product(*fish_stock)
-                if len(ALL_CANDIDATES.intersection(*[c.candidates for subset in fish for c in subset])) >= 1
+                if len(self.ALL_CANDIDATES.intersection(*[c.candidates for subset in fish for c in subset])) >= 1
                 and len(
                     [cnt for _, cnt in
                      Counter([
@@ -466,7 +424,7 @@ class Sudoku(object):
             for fish in fishes:
                 base_indices = {c.location.x if relation == CellRelation.COLUMN else c.location.y for c in fish}
                 cover_indices = {c.location.y if relation == CellRelation.COLUMN else c.location.x for c in fish}
-                candidates = ALL_CANDIDATES.intersection(*[c.candidates for c in fish])
+                candidates = self.ALL_CANDIDATES.intersection(*[c.candidates for c in fish])
                 candidates -= set().union(*[
                     c.candidates
                     for index in base_indices
@@ -705,7 +663,7 @@ class Cell(object):
         self._prev_candidates = {} if self._candidates is None else self._candidates
         self._candidates = {} if value is None else value
 
-    def is_var_changed(self, var):
+    def var_changed(self, var):
         """
         Tests whether the given var has changed.
         Only works for "value" and "candidates"
@@ -755,7 +713,7 @@ class Action(object):
 
     @staticmethod
     def solve(cell, value):
-        return Action(ActionOperation.SOLVE, [cell], {value})
+        return Action(ActionOperation.SOLVE, cell, value)
 
     @staticmethod
     def remove(cells, candidates):
@@ -766,8 +724,8 @@ class Action(object):
         return Action(ActionOperation.EXCLUSIVE, cells, candidates)
 
     @staticmethod
-    def populate(cell, candidates):
-        return Action(ActionOperation.POPULATE, [cell], candidates)
+    def equal(cell, candidates):
+        return Action(ActionOperation.EQUAL, cell, candidates)
 
     def __str__(self):
         pass
@@ -823,6 +781,6 @@ seed = (".41729.3."
         "958431267")
 samples.append(Sudoku(seed))
 
-"8396 "
+# 8396 9565
 for sample in samples:
     sample.solve()
