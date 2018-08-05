@@ -4,7 +4,7 @@ import itertools as it
 import math
 from enum import Enum
 from collections import Counter
-
+import re
 
 # NAMED TUPLES
 Point = namedtuple("Point", "x y")
@@ -128,6 +128,10 @@ class Sudoku(object):
         :rtype: Cell
         """
 
+        if isinstance(location, str):
+            location_match = re.match("([A-Z])(\d+)", location.upper())
+            if location_match:
+                return self.board[int(location_match.group(2)) - 1][ord(location_match.group(1)) - ord("A")]
         return self.board[location.y][location.x]
 
     def column(self, x, flatten=True):
@@ -272,7 +276,6 @@ class Sudoku(object):
             changed = False
             for technique in techniques:
                 changed = changed or technique()
-            changed = False
             if not changed: break
 
         after = str(self)
@@ -380,7 +383,6 @@ class Sudoku(object):
         changed = False
 
         for relation in ["row", "column"]:
-            print(relation)
             # filter out cells with values
             cell_grouping = [
                 [c for c in grp if c.value is None]
@@ -433,7 +435,6 @@ class Sudoku(object):
                     for c in (self.row(index) if relation == "column" else self.column(index))
                     if c.value is None and c not in fish
                 ]
-                print("remove %s from %s" % (candidates, cells))
                 changed = self.remove_candidates_from_cells(cells, candidates) or changed
 
         return changed
@@ -558,13 +559,11 @@ class Cell(object):
         :rtype: string
         """
 
-        return self.var_to_string(self.location)
-        #return "Cell({}, {}, {})".format(self.square, self.location, self.value)
+        return "Cell({}, {}, {})".format(self.square, self.location, self.value)
 
     def var_to_string(self, var, options=None):
         """
         Method returns a formatted string of the cell's variable
-
 
         :param var: square, location, candidates, or value
         :type var: reference
