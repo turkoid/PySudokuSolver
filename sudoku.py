@@ -31,7 +31,11 @@ class CellRelation(Enum):
     ROW = 1,
     COLUMN = 2
 
-
+    @classmethod
+    def all(cls):
+        return {r for r in cls}
+    
+    
 class TechniqueArchetype(Enum):
     NAKED = 0
     HIDDEN = 1
@@ -206,14 +210,14 @@ class Sudoku(object):
         :rtype: list
         """
 
-        if relations is None: relations = {"box", "row", "box"}
+        if relations is None: relations = CellRelation.all()
 
         cells = {}
-        if "box" in relations:
+        if CellRelation.BOX in relations:
             cells |= set(self.box(parent.box))
-        if "row" in relations:
+        if CellRelation.ROW in relations:
             cells |= set(self.row(parent.location.y))
-        if "column" in relations:
+        if CellRelation.COLUMN in relations:
             cells |= set(self.column(parent.location.x))
         cells -= {parent}
         return list(cells) if cell_filter is None else [c for c in cells if cell_filter(c)]
@@ -338,10 +342,9 @@ class Sudoku(object):
         cells = [c for c in self.cells if c.value is None]
         for cell in cells:
             if len(cell.candidates) == 1:
-                changed = self.apply_technique(Technique(TechniqueArchetype.NAKED, 1), [cell], cell.candidates)
                 candidates = cell.candidates
             else:
-                for relation in {"box", "row", "column"}:
+                for relation in CellRelation.all():
                     candidates = cell.candidates.difference(
                         *[rc.candidates
                           for rc in self.related_cells(cell, {relation}, cell_filter=lambda c: c.value is None)]
@@ -372,12 +375,12 @@ class Sudoku(object):
         """
 
         changed = False
-        for relation in {"box", "row", "column"}:
+        for relation in CellRelation.all():
             # this is filtering the multi-dimensional array of rows, columns, or boxes so that each sub-array contains
             # only cells with no value set
             cell_groups = [grp for grp in [[c for c in grp if c.value is None] for grp in (
-                self.boxes if relation == "box"
-                else self.rows if relation == "row"
+                self.boxes if relation == CellRelation.BOX
+                else self.rows if relation == CellRelation.ROW
                 else self.columns
             )] if grp]
             for cells in cell_groups:
@@ -394,13 +397,13 @@ class Sudoku(object):
                                 )) or changed
                             changed = Sudoku.remove_candidates_from_cells(other_cells, candidates) or changed
                             blocking_relation = None
-                            if relation == "box":
+                            if relation == CellRelation.BOX:
                                 if Sudoku.is_same_column(subset):
-                                    blocking_relation = "column"
+                                    blocking_relation = CellRelation.COLUMN
                                 elif Sudoku.is_same_row(subset):
-                                    blocking_relation = "row"
+                                    blocking_relation = CellRelation.ROW
                             elif Sudoku.is_same_box(subset):
-                                blocking_relation = "box"
+                                blocking_relation = CellRelation.BOX
                             if blocking_relation is not None:
                                 changed = Sudoku.remove_candidates_from_cells(self.related_cells(
                                     subset[0], {blocking_relation}, cell_filter=lambda c: c.value is None and c not in subset
@@ -423,11 +426,11 @@ class Sudoku(object):
 
         changed = False
 
-        for relation in {"row", "column"}:
+        for relation in {CellRelation.ROW, CellRelation.COLUMN}:
             # filter out cells with values
             cell_grouping = [
                 [c for c in grp if c.value is None]
-                for grp in (self.rows if relation == "row" else self.columns)
+                for grp in (self.rows if relation == CellRelation.ROW else self.columns)
             ]
             # finds naked or hidden subsetS
             group_sets = [grp for grp in [
@@ -453,7 +456,7 @@ class Sudoku(object):
                 and len(
                     [cnt for _, cnt in
                      Counter([
-                         c.location.x if relation == "row" else c.location.y
+                         c.location.x if relation == CellRelation.ROW else c.location.y
                          for subset in fish
                          for c in subset]
                      ).items() if cnt == 1]
@@ -461,19 +464,19 @@ class Sudoku(object):
             ]
             # lets do the magic
             for fish in fishes:
-                base_indices = {c.location.x if relation == "column" else c.location.y for c in fish}
-                cover_indices = {c.location.y if relation == "column" else c.location.x for c in fish}
+                base_indices = {c.location.x if relation == CellRelation.COLUMN else c.location.y for c in fish}
+                cover_indices = {c.location.y if relation == CellRelation.COLUMN else c.location.x for c in fish}
                 candidates = ALL_CANDIDATES.intersection(*[c.candidates for c in fish])
                 candidates -= set().union(*[
                     c.candidates
                     for index in base_indices
-                    for c in (self.column(index) if relation == "column" else self.row(index))
+                    for c in (self.column(index) if relation == CellRelation.COLUMN else self.row(index))
                     if c.value is None and c not in fish
                 ])
                 cells = [
                     c
                     for index in cover_indices
-                    for c in (self.row(index) if relation == "column" else self.column(index))
+                    for c in (self.row(index) if relation == CellRelation.COLUMN else self.column(index))
                     if c.value is None and c not in fish
                 ]
                 changed = self.remove_candidates_from_cells(cells, candidates) or changed
