@@ -10,8 +10,7 @@ import re
 # NAMED TUPLES
 Point = namedtuple("Point", "x y")
 Dimension = namedtuple("Dim", "width height")
-Technique = namedtuple("Technique Variation", "type, size")
-
+Technique = namedtuple("Technique Variation", "type size")
 
 # CONSTANTS
 # the default dimension of a single box (not the board)
@@ -27,17 +26,26 @@ CELL_VALUE_MAP = dict(list(zip(
 )))
 
 
-class TechniqueArchetype(Enum):
-    """
-    Enum for technique archetypes
-    """
+class CellRelation(Enum):
+    BOX = 0,
+    ROW = 1,
+    COLUMN = 2
 
+
+class TechniqueArchetype(Enum):
     NAKED = 0
     HIDDEN = 1
     POINTING = 2
     CLAIMING = 3
     FISH = 4
     WING = 5
+
+
+class ActionOperation(Enum):
+    SOLVE = 0
+    REMOVE = 1
+    EXCLUSIVE = 2
+    POPULATE = 3
 
 
 class Sudoku(object):
@@ -77,6 +85,7 @@ class Sudoku(object):
                       for x in range(0, self.size.width)]
 
         self.populate_candidates()
+        self.solveSteps = []
 
     def reset(self):
         """
@@ -263,7 +272,7 @@ class Sudoku(object):
     @staticmethod
     def remove_candidates_from_cells(cells, candidates):
         if not candidates: return False
-        cells = [c for c in cells if c.value is None and c.candidates and not c.candidates.isdisjoint(candidates)]
+        cells = [c for c in cells if c.value is None and not c.candidates.isdisjoint(candidates)]
         for cell in cells: cell.candidates -= candidates
         return len(cells) > 0
 
@@ -283,9 +292,10 @@ class Sudoku(object):
         :rtype: bool
         """
 
-        if technique.type == TechniqueArchetype.NAKED:
-            if technique.size == 1:
-                "Naked Subset[{size}] in cell ({cells})"
+        if not cells or not values: return False
+
+        if technique.type in {TechniqueArchetype.NAKED, TechniqueArchetype.HIDDEN} and technique.size == 1:
+            cells[0].value = next(iter(values))
 
     def solve(self):
         """
@@ -328,6 +338,7 @@ class Sudoku(object):
         cells = [c for c in self.cells if c.value is None]
         for cell in cells:
             if len(cell.candidates) == 1:
+                changed = self.apply_technique(Technique(TechniqueArchetype.NAKED, 1), [cell], cell.candidates)
                 candidates = cell.candidates
             else:
                 for relation in {"box", "row", "column"}:
@@ -710,6 +721,55 @@ class Cell(object):
             return False, None
 
 
+class Step(object):
+    def __init__(self, technique, cells, values):
+        self.technique = technique
+        self.cells = cells
+        self.values = values
+        self.actions = []
+
+    def __str__(self):
+        pass
+
+    def summary(self):
+        pass
+
+    def description(self):
+        pass
+
+    def summary_action(self):
+        pass
+
+    def actions(self):
+        pass
+
+
+class Action(object):
+    def __init__(self, op, cells, values):
+        self.op = op
+        self.cells = cells
+        self.values = values
+
+    @staticmethod
+    def solve(cell, value):
+        return Action(ActionOperation.SOLVE, [cell], {value})
+
+    @staticmethod
+    def remove(cells, candidates):
+        return Action(ActionOperation.REMOVE, cells, candidates)
+
+    @staticmethod
+    def exclusive(cells, candidates):
+        return Action(ActionOperation.EXCLUSIVE, cells, candidates)
+
+    @staticmethod
+    def populate(cell, candidates):
+        return Action(ActionOperation.POPULATE, [cell], candidates)
+
+    def __str__(self):
+        pass
+
+
 samples = list()
 seed = (
     "000005790"
@@ -760,5 +820,6 @@ seed = (".41729.3."
         "958431267")
 samples.append(Sudoku(seed))
 
+"8396 "
 for sample in samples:
     sample.solve()
