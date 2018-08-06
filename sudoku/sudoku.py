@@ -1,26 +1,23 @@
-from sudoku.constants import *
-from sudoku.enums import *
-from sudoku.tuples import *
-from sudoku.solve_steps import *
+from sudoku.dependencies import *
+from sudoku.steps import *
 import numpy as np
 import itertools as it
 import math
 from collections import Counter
 import re
+from typing import *
 
 
 class Sudoku(object):
-    def __init__(self, seed, size=DEFAULT_BOX_SIZE):
+    def __init__(self, seed: Iterable, size: Dimension = DEFAULT_BOX_SIZE) -> None:
         """
         Initializes the sudoku board
 
         :param seed: The starting values for the board. Use the alpha equivalent for double digit numbers
-        :type seed: Iterable
         :param size: Dimension of the box, not the board. Defaults to 3x3
-        :type size: Dimension
         """
 
-        self.seed = [str(v) for v in list(seed)]
+        self.seed = [str(v) for v in iter(seed)]
         if size is None:
             # Try to determine the size of box by taking the 4th root of the seed length
             size = int(math.sqrt(math.sqrt(len(self.seed))))
@@ -49,7 +46,7 @@ class Sudoku(object):
         self.populate_candidates()
         self.solve_steps = []
 
-    def reset(self):
+    def reset(self) -> NoReturn:
         """
         Resets the board to the seed value
 
@@ -59,50 +56,42 @@ class Sudoku(object):
         for cell, value in zip(self.cells, self.seed):
             cell.value = value
 
-    def index_to_location(self, index):
+    def index_to_location(self, index: int) -> Point:
         """
         Converts the index in all the cells to a point
 
         :param index: Index within all cells
-        :type index: int
         :return: The x, y location of the cell within the board
-        :rtype: Point
         """
 
         return Point(index % self.length, int(index / self.length))
 
-    def location_to_index(self, location):
+    def location_to_index(self, location: Point) -> int:
         """
         Converts a point to the index in all the cells
 
         :param location: The x, y location of the cell within the board
-        :type location: Point
         :return: Index within all cells
-        :rtype: int
         """
 
         return location.y * self.length + location.x
 
-    def cell_box(self, location):
+    def cell_box(self, location: Point) -> Point:
         """
         The box the cell is in
 
         :param location: The x,y location of the cell
-        :type location: Point
         :return: The x,y location of the box containing the cell
-        :rtype: Point
         """
 
         return Point(int(location.x / self.size.height), int(location.y / self.size.width))
 
-    def cell(self, location):
+    def cell(self, location: Point) -> Cell:
         """
         Returns the cell at location
 
         :param location: The x, y location within all the cells
-        :type location: Union[Point, str]
         :return: The Cell
-        :rtype: Cell
         """
 
         if isinstance(location, str):
@@ -111,42 +100,34 @@ class Sudoku(object):
                 return self.board[int(location_match.group(2)) - 1][ord(location_match.group(1)) - ord("A")]
         return self.board[location.y][location.x]
 
-    def column(self, x, flatten=True):
+    def column(self, x: int, flatten: bool = True) -> List[Cell]:
         """
         The group of cells at column x
 
         :param x: The column index
-        :type x: int
         :param flatten: Flattens the 1xN into a Nx1 array
-        :type flatten: bool
         :return: Column cells
-        :rtype: list
         """
 
         cells = self.board[:, x]
         return (cells.flatten() if flatten else cells).tolist()
 
-    def row(self, y):
+    def row(self, y: int) -> List[Cell]:
         """
         The group of cells at row y
         :param y: The row index
-        :type y: int
         :return: Row cells
-        :rtype: list
         """
 
         return self.board[y].tolist()
 
-    def box(self, location, flatten=True):
+    def box(self, location: Point, flatten: bool = True) -> List[Cell]:
         """
         The group of cells at box location
 
         :param location: The x,y location of the box
-        :type location: Point
         :param flatten: Flattens the MxN array into a (M*N)x1 array
-        :type flatten: bool
         :return: box cells
-        :rtype: list
         """
 
         cells = self.board[
@@ -154,18 +135,15 @@ class Sudoku(object):
                 location.x * self.size.height:(location.x + 1) * self.size.height]
         return (cells.flatten() if flatten else cells).tolist()
 
-    def related_cells(self, parent, relations=None, cell_filter=None):
+    def related_cells(self, parent: Cell, relations: Optional[Set[CellRelation]],
+                      cell_filter: Optional[Callable] = None) -> List[Cell]:
         """
         The group of cells that share a relation to the parent cell
 
         :param parent: The cell to find its relatives
-        :type parent: Cell
         :param relations: The relationships to search for. If nothing is passed, it defaults to all
-        :type relations: set
         :param cell_filter: Function used to filter out unwanted cells
-        :type cell_filter: Function
         :return: Related cells
-        :rtype: list
         """
 
         if relations is None: relations = CellRelation.all()
@@ -181,86 +159,95 @@ class Sudoku(object):
         return list(cells) if cell_filter is None else [c for c in cells if cell_filter(c)]
 
     @staticmethod
-    def is_same_column(cells):
+    def is_same_column(cells: Iterable[Cell]) -> bool:
         """
         Test to see if all cells are in the same column
 
         :param cells: Cells to test
-        :type cells: Iterable
         :return: True if same column, false otherwise
-        :rtype: bool
         """
 
         return not cells or [c.location.x for c in cells].count(cells[0].location.x) == len(cells)
 
     @staticmethod
-    def is_same_row(cells):
+    def is_same_row(cells: Iterable[Cell]) -> bool:
         """
         Test to see if all cells are in the same row
 
         :param cells: Cells to test
-        :type cells: Iterable
         :return: True if same row, false otherwise
-        :rtype: bool
         """
 
         return not cells or [c.location.y for c in cells].count(cells[0].location.y) == len(cells)
 
     @staticmethod
-    def is_same_box(cells):
+    def is_same_box(cells: Iterable[Cell]) -> bool:
         """
         Test to see if all cells are in the same box
 
         :param cells: Cells to test
-        :type cells: Iterable
         :return: True if same box, false otherwise
-        :rtype: bool
         """
 
         return not cells or [c.box for c in cells].count(cells[0].box) == len(cells)
 
     @staticmethod
-    def remove_candidates_from_cells(cells, candidates):
+    def remove_candidates_from_cells(cells: Iterable[Cell], candidates: Set[int]) -> bool:
         if not candidates: return False
         cells = [c for c in cells if c.value is None and not c.candidates.isdisjoint(candidates)]
         for cell in cells: cell.candidates -= candidates
         return len(cells) > 0
 
-    def populate_candidates(self):
+    def populate_candidates(self) -> NoReturn:
         """
         Populates all cells with no value with possible candidates
 
         :return:
         """
 
-        for cell in [c for c in self.cells if c.value is None]:
-            cell.candidates = self.ALL_CANDIDATES.difference(
-                (rc.value for rc in self.related_cells(cell, cell_filter=lambda c: c.value is not None)))
-            if cell.var_changed("candidates"):
-                self.solve_steps.append(Step(TechniqueArchetype))
+        cells = [c for c in self.cells if c.value is None]
+        if cells:
+            actions = []
+            for cell in cells:
+                cell.candidates = self.ALL_CANDIDATES.difference(
+                    (rc.value for rc in self.related_cells(cell, cell_filter=lambda c: c.value is not None)))
+                if cell.var_changed("candidates"):
+                    actions.append(Action.equal(cell, cell.candidates))
+            if actions:
+                self.solve_steps.append(
+                    Step(Technique(TechniqueArchetype.POPULATE, len(cells)), cells, self.ALL_CANDIDATES, actions))
 
-    def apply_technique(self, technique, cells, values, info=None):
+    def apply_technique(self, technique: Technique, cells: Iterable[Cell], values: Set[int],
+                        info: Optional[str] = None) -> bool:
         """
         Applies the technique given to the given cells
 
         :param technique: The technique to use
-        :type technique: Technique
         :param cells: The cells
-        :type cells: iterable
         :param values: The values to use
-        :type values: iterable
         :param info: Extra information to help format the log entry
-        :type info: str
         :return: True if a cell's value changed or any cell candidates
-        :rtype: bool
         """
 
         if not cells or not values: return False
 
+        actions = []
         if technique.type in {TechniqueArchetype.NAKED, TechniqueArchetype.HIDDEN} and technique.size == 1:
             cells[0].value = next(iter(values))
+            if cells[0].var_changed("value"):
+                actions.append(Action.solve(cells[0]))
+                related_cells = [rc for rc in self.related_cells(
+                    cells[0], cell_filter=lambda c: c.value is None and cells[0].value in c.candidates)]
+                if related_cells:
+                    for rc in related_cells:
+                        actions.append(Action.remove())
+        if actions:
+            self.solve_steps.append(Step(technique, cells, values, actions))
+            return True
 
-    def solve(self):
+        return False
+
+    def solve(self) -> bool:
         """
         Attempts to solve the puzzle using common techniques
 
@@ -284,7 +271,7 @@ class Sudoku(object):
         for before_line, after_line in zip(before.split("\n"), after.split("\n")):
             print("%s   %s" % (before_line, after_line))
 
-    def solve_singles(self):
+    def solve_singles(self) -> bool:
         """
         This technique finds naked singles and hidden singles
 
@@ -294,7 +281,6 @@ class Sudoku(object):
         Hidden single - The cell within the related cells can only contain this candidate
 
         :return: True if changes where made to any cell, otherwise False
-        :rtype: bool
         """
 
         changed = False
@@ -315,7 +301,7 @@ class Sudoku(object):
                 changed = True
         return changed
 
-    def solve_subsets(self):
+    def solve_subsets(self) -> bool:
         """
         This technique finds naked, hidden, and blocking subsets
 
@@ -330,7 +316,6 @@ class Sudoku(object):
         or box, then the related cells cannot contain the subsets' candidates
 
         :return: True if changes where made to any cell
-        :rtype: bool
         """
 
         changed = False
@@ -369,7 +354,7 @@ class Sudoku(object):
                                 ), candidates) or changed
         return changed
 
-    def solve_fish(self):
+    def solve_fish(self) -> bool:
         """
         Uses the fish solving technique
 
@@ -380,7 +365,6 @@ class Sudoku(object):
         Jellyfish - 4x4 fish
 
         :return: True if changes where made to any cell, otherwise False
-        :rtype: bool
         """
 
         changed = False
@@ -442,14 +426,13 @@ class Sudoku(object):
 
         return changed
 
-    def solve_wings(self):
+    def solve_wings(self) -> bool:
         """
         Finds XY, XYZ (not yet implemented) wings
 
         http://hodoku.sourceforge.net/en/tech_wings.php
 
         :return: True if changes where made to any cell
-        :rtype: bool
         """
 
         changed = False
@@ -472,12 +455,11 @@ class Sudoku(object):
 
         return changed
 
-    def __str__(self):
+    def __str__(self) -> str:
         """
         The string representation of the board with row and column labels
 
         :return: Pretty board output
-        :rtype: str
         """
 
         # since strings are immutable, this is my attempt at emulating StringBuffer in Java
@@ -508,7 +490,7 @@ class Sudoku(object):
 
         return "".join(buffer)
 
-    def print(self):
+    def print(self) -> NoReturn:
         """
         Merely a convenience method to write the string representation to the standard output
 
@@ -516,29 +498,25 @@ class Sudoku(object):
         """
         print(str(self))
 
-    def calculate_seed(self):
+    def calculate_seed(self) -> str:
         """
         Returns a string representation of the cells with values.
 
         :return: The seed
-        :rtype: str
         """
 
         return "".join("." if c.value is None else str(c) for c in self.cells)
 
 
 class Cell(object):
-    def __init__(self, box, location, value=None):
+    def __init__(self, box: Point, location: Point, value: Union[int, str] = None) -> None:
         """
         Initializes the cell object
 
         :param box: The box the cell is located in
-        :type box: Point
         :param location: The cells location in the board
-        :type box: Point
         :param value: The initial value of the cell. If a string is passed it's converted to it's int value based
         on CELL_VALUE_MAP
-        :type value: Union[int,
         """
 
         self.box = box
@@ -546,36 +524,31 @@ class Cell(object):
         self.candidates = {}
         self.value = value
 
-    def __str__(self):
+    def __str__(self) -> str:
         """
         The string representation of the cell's value, blank space if no value
 
         :return: The cell's value
-        :rtype: str
         """
 
         return " " if self.value is None else CELL_VALUE_MAP[self.value]
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         """
         The internal representation of the cell
 
         :return: Internal representation
-        :rtype: string
         """
 
         return "Cell({}, {}, {})".format(self.box, self.location, self.value)
 
-    def var_to_string(self, var, options=None):
+    def var_to_string(self, var: str, options: Optional[str] = None) -> str:
         """
         Method returns a formatted string of the cell's variable
 
         :param var: box, location, candidates, or value
-        :type var: str
         :param options: formatting options for the variable
-        :type options: str
         :return: The formatted string
-        :rtype: str
         """
 
         if var == "box":
@@ -592,37 +565,33 @@ class Cell(object):
         elif var == "value":
             return str(var) if self.value is not None or options is None else options
 
-    def is_related(self, other_cell):
+    def is_related(self, other_cell: Cell) -> bool:
         """
         Test to see if the other cell is in the same row, column, or box
         :param other_cell: The cell to test
-        :type other_cell: Cell
         :return: True if related, false otherwise
-        :rtype: bool
         """
 
         cells = [self, other_cell]
         return Sudoku.is_same_box(cells) or Sudoku.is_same_column(cells) or Sudoku.is_same_row(cells)
 
     @property
-    def value(self):
+    def value(self) -> int:
         """
         Cell variable wrapper
 
         :return: value
-        :rtype: int
         """
 
         return self._value
 
     @value.setter
-    def value(self, value):
+    def value(self, value: Union[int, str]) -> NoReturn:
         """
         Setter method for value. Allows for int, string input. Strings are converted to int based on the CELL_VALUE_MAP
         Stores the previous value to track changes
 
         :param value: value to set
-        :type value: Union[int, str]
         :return:
         """
 
@@ -641,7 +610,7 @@ class Cell(object):
         self.candidates = {} if self.value is None else {self.value}
 
     @property
-    def candidates(self):
+    def candidates(self) -> Set[int]:
         """
         Candidates variables wrapper
 
@@ -651,28 +620,25 @@ class Cell(object):
         return self._candidates
 
     @candidates.setter
-    def candidates(self, value):
+    def candidates(self, value: Set[int]) -> NoReturn:
         """
         Candidate setter wrapper
         Stores the previous value to track changes
 
         :param value: The candidates
-        :type value: set
         :return:
         """
 
         self._prev_candidates = {} if self._candidates is None else self._candidates
         self._candidates = {} if value is None else value
 
-    def var_changed(self, var):
+    def var_changed(self, var: str) -> Tuple[bool, Union[int, Optional[Set[int]]]]:
         """
         Tests whether the given var has changed.
         Only works for "value" and "candidates"
 
         :param var: Variable to test
-        :type var: str
         :return: True if changed, False otherwise and the changed var
-        :rtype: bool, Union[int, set]
         """
 
         if var == "value":
