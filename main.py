@@ -1,5 +1,5 @@
-from sudoku.sudoku import Sudoku
-from sudoku.dependencies import Dimension
+from sudoku.sudoku import *
+
 
 samples = list()
 seed = (
@@ -54,5 +54,3 @@ samples.append(Sudoku(seed))
 # 8396 9565
 for sample in samples:
     sample.solve()
-
-

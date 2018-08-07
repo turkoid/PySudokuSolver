@@ -1,5 +1,6 @@
+from __future__ import annotations
 from sudoku.dependencies import *
-from sudoku.steps import *
+from sudoku.solution import Step, action_equal, action_exclusive, action_remove, action_solve
 import numpy as np
 import itertools as it
 import math
@@ -8,8 +9,51 @@ import re
 from typing import *
 
 
+def is_same_column(cells: Iterable[Cell]) -> bool:
+    """
+    Test to see if all cells are in the same column
+
+    :param cells: Cells to test
+    :return: True if same column, false otherwise
+    """
+
+    if cells: cells = list(cells)
+    return cells and [c.location.x for c in cells].count(cells[0].location.x) == len(cells)
+
+
+def is_same_row(cells: Iterable[Cell]) -> bool:
+    """
+    Test to see if all cells are in the same row
+
+    :param cells: Cells to test
+    :return: True if same row, false otherwise
+    """
+
+    if cells: cells = list(cells)
+    return not cells or [c.location.y for c in cells].count(cells[0].location.y) == len(cells)
+
+
+def is_same_box(cells: Iterable[Cell]) -> bool:
+    """
+    Test to see if all cells are in the same box
+
+    :param cells: Cells to test
+    :return: True if same box, false otherwise
+    """
+
+    if cells: cells = list(cells)
+    return not cells or [c.box for c in cells].count(cells[0].box) == len(cells)
+
+
+def remove_candidates_from_cells(cells: Iterable[Cell], candidates: Set[int]) -> bool:
+    if not cells or not candidates: return False
+    cells = [c for c in cells if c.value is None and not c.candidates.isdisjoint(candidates)]
+    for cell in cells: cell.candidates -= candidates
+    return len(cells) > 0
+
+
 class Sudoku(object):
-    def __init__(self, seed: Iterable, size: Dimension = DEFAULT_BOX_SIZE) -> None:
+    def __init__(self, seed: Iterable, size: Optional[Dimension] = DEFAULT_BOX_SIZE) -> None:
         """
         Initializes the sudoku board
 
@@ -135,7 +179,7 @@ class Sudoku(object):
                 location.x * self.size.height:(location.x + 1) * self.size.height]
         return (cells.flatten() if flatten else cells).tolist()
 
-    def related_cells(self, parent: Cell, relations: Optional[Set[CellRelation]],
+    def related_cells(self, parent: Cell, relations: Optional[Set[CellRelation]] = None,
                       cell_filter: Optional[Callable] = None) -> List[Cell]:
         """
         The group of cells that share a relation to the parent cell
@@ -158,46 +202,6 @@ class Sudoku(object):
         cells -= {parent}
         return list(cells) if cell_filter is None else [c for c in cells if cell_filter(c)]
 
-    @staticmethod
-    def is_same_column(cells: Iterable[Cell]) -> bool:
-        """
-        Test to see if all cells are in the same column
-
-        :param cells: Cells to test
-        :return: True if same column, false otherwise
-        """
-
-        return not cells or [c.location.x for c in cells].count(cells[0].location.x) == len(cells)
-
-    @staticmethod
-    def is_same_row(cells: Iterable[Cell]) -> bool:
-        """
-        Test to see if all cells are in the same row
-
-        :param cells: Cells to test
-        :return: True if same row, false otherwise
-        """
-
-        return not cells or [c.location.y for c in cells].count(cells[0].location.y) == len(cells)
-
-    @staticmethod
-    def is_same_box(cells: Iterable[Cell]) -> bool:
-        """
-        Test to see if all cells are in the same box
-
-        :param cells: Cells to test
-        :return: True if same box, false otherwise
-        """
-
-        return not cells or [c.box for c in cells].count(cells[0].box) == len(cells)
-
-    @staticmethod
-    def remove_candidates_from_cells(cells: Iterable[Cell], candidates: Set[int]) -> bool:
-        if not candidates: return False
-        cells = [c for c in cells if c.value is None and not c.candidates.isdisjoint(candidates)]
-        for cell in cells: cell.candidates -= candidates
-        return len(cells) > 0
-
     def populate_candidates(self) -> NoReturn:
         """
         Populates all cells with no value with possible candidates
@@ -212,12 +216,12 @@ class Sudoku(object):
                 cell.candidates = self.ALL_CANDIDATES.difference(
                     (rc.value for rc in self.related_cells(cell, cell_filter=lambda c: c.value is not None)))
                 if cell.var_changed("candidates"):
-                    actions.append(Action.equal(cell, cell.candidates))
+                    actions.append(action_equal(cell, cell.candidates))
             if actions:
                 self.solve_steps.append(
-                    Step(Technique(TechniqueArchetype.POPULATE, len(cells)), cells, self.ALL_CANDIDATES, actions))
+                    Step(Technique(TechniqueArchetype.POPULATE, len(cells)), cells, self.ALL_CANDIDATES, None))
 
-    def apply_technique(self, technique: Technique, cells: Iterable[Cell], values: Set[int],
+    def apply_technique(self, technique: Technique, cells: List[Cell], values: Set[int],
                         info: Optional[str] = None) -> bool:
         """
         Applies the technique given to the given cells
@@ -235,19 +239,19 @@ class Sudoku(object):
         if technique.type in {TechniqueArchetype.NAKED, TechniqueArchetype.HIDDEN} and technique.size == 1:
             cells[0].value = next(iter(values))
             if cells[0].var_changed("value"):
-                actions.append(Action.solve(cells[0]))
+                actions.append(action_solve(cells[0]))
                 related_cells = [rc for rc in self.related_cells(
                     cells[0], cell_filter=lambda c: c.value is None and cells[0].value in c.candidates)]
                 if related_cells:
                     for rc in related_cells:
-                        actions.append(Action.remove())
+                        pass
         if actions:
-            self.solve_steps.append(Step(technique, cells, values, actions))
+            # self.solve_steps.append(Step(technique, cells, values, actions))
             return True
 
         return False
 
-    def solve(self) -> bool:
+    def solve(self) -> NoReturn:
         """
         Attempts to solve the puzzle using common techniques
 
@@ -286,6 +290,7 @@ class Sudoku(object):
         changed = False
         cells = [c for c in self.cells if c.value is None]
         for cell in cells:
+            candidates = None
             if len(cell.candidates) == 1:
                 candidates = cell.candidates
             else:
@@ -295,9 +300,9 @@ class Sudoku(object):
                           for rc in self.related_cells(cell, {relation}, cell_filter=lambda c: c.value is None)]
                     )
                     if len(candidates) == 1: break
-            if len(candidates) == 1:
+            if candidates and len(candidates) == 1:
                 cell.value = next(iter(candidates))
-                Sudoku.remove_candidates_from_cells(self.related_cells(cell), {cell.value})
+                remove_candidates_from_cells(self.related_cells(cell), {cell.value})
                 changed = True
         return changed
 
@@ -335,22 +340,23 @@ class Sudoku(object):
                         candidates = set().union(*[c.candidates for c in subset])
                         candidates -= set().union(*[c.candidates for c in other_cells])
                         if len(candidates) == subset_length:
-                            changed = Sudoku.remove_candidates_from_cells(
+                            changed = remove_candidates_from_cells(
                                 subset, candidates.symmetric_difference(
                                     set().union(*[c.candidates for c in subset])
                                 )) or changed
-                            changed = Sudoku.remove_candidates_from_cells(other_cells, candidates) or changed
+                            changed = remove_candidates_from_cells(other_cells, candidates) or changed
                             blocking_relation = None
                             if relation == CellRelation.BOX:
-                                if Sudoku.is_same_column(subset):
+                                if is_same_column(subset):
                                     blocking_relation = CellRelation.COLUMN
-                                elif Sudoku.is_same_row(subset):
+                                elif is_same_row(subset):
                                     blocking_relation = CellRelation.ROW
-                            elif Sudoku.is_same_box(subset):
+                            elif is_same_box(subset):
                                 blocking_relation = CellRelation.BOX
                             if blocking_relation is not None:
-                                changed = Sudoku.remove_candidates_from_cells(self.related_cells(
-                                    subset[0], {blocking_relation}, cell_filter=lambda c: c.value is None and c not in subset
+                                changed = remove_candidates_from_cells(self.related_cells(
+                                    subset[0], {blocking_relation},
+                                    cell_filter=lambda c: c.value is None and c not in subset
                                 ), candidates) or changed
         return changed
 
@@ -422,7 +428,7 @@ class Sudoku(object):
                     for c in (self.row(index) if relation == CellRelation.COLUMN else self.column(index))
                     if c.value is None and c not in fish
                 ]
-                changed = self.remove_candidates_from_cells(cells, candidates) or changed
+                changed = remove_candidates_from_cells(cells, candidates) or changed
 
         return changed
 
@@ -450,8 +456,8 @@ class Sudoku(object):
                 wing_x = wing[0]
                 wing_y = wing[1]
                 cells = set(iter(self.related_cells(wing_x))) & (set(iter(self.related_cells(wing_y)))) - {pivot_cell}
-                changed = Sudoku.remove_candidates_from_cells(
-                    cells, wing_x.candidates.intersection(wing_y.candidates)) or changed
+                changed = remove_candidates_from_cells(
+                    list(cells), wing_x.candidates.intersection(wing_y.candidates)) or changed
 
         return changed
 
@@ -565,7 +571,7 @@ class Cell(object):
         elif var == "value":
             return str(var) if self.value is not None or options is None else options
 
-    def is_related(self, other_cell: Cell) -> bool:
+    def is_related(self, other_cell: "Cell") -> bool:
         """
         Test to see if the other cell is in the same row, column, or box
         :param other_cell: The cell to test
@@ -573,7 +579,7 @@ class Cell(object):
         """
 
         cells = [self, other_cell]
-        return Sudoku.is_same_box(cells) or Sudoku.is_same_column(cells) or Sudoku.is_same_row(cells)
+        return is_same_box(cells) or is_same_column(cells) or is_same_row(cells)
 
     @property
     def value(self) -> int:
