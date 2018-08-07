@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Set
+from typing import Set, Optional
 from enum import Enum
 from dataclasses import dataclass
 
@@ -22,6 +22,12 @@ class TechniqueArchetype(Enum):
     CLAIMING = 4
     FISH = 5
     WING = 6
+
+
+class ArcheTypeVariation(Enum):
+    BOX = 0
+    ROW = 1
+    COLUMN = 2
 
 
 class ActionOperation(Enum):
@@ -47,6 +53,7 @@ class Dimension:
 class Technique:
     type: TechniqueArchetype
     size: int
+    variation: Optional[ArcheTypeVariation] = None
 
 
 # the default dimension of a single box (not the board)
