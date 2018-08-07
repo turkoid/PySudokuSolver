@@ -1,3 +1,5 @@
+from __future__ import annotations
+from typing import Set
 from enum import Enum
 from dataclasses import dataclass
 
@@ -8,7 +10,7 @@ class CellRelation(Enum):
     COLUMN = 2
 
     @classmethod
-    def all(cls):
+    def all(cls) -> Set[CellRelation]:
         return {r for r in cls}
 
 
