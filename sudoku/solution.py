@@ -5,7 +5,7 @@ from typing import *
 
 
 def create_cell_actions(cells: Iterable[Cell]) -> List[CellAction]:
-    return [CellAction(c) for c in cells if c.candidates != c.old_candidates]
+    return [CellAction(c) for c in cells if c.candidates_changed()]
 
 
 class CellAction(object):

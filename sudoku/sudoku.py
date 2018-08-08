@@ -1,55 +1,12 @@
 from __future__ import annotations
 from sudoku.dependencies import *
-from sudoku.solution import Step, action_equal, action_exclusive, action_remove, action_solve
+import sudoku.solution as solution
 import numpy as np
 import itertools as it
 import math
 from collections import Counter
 import re
 from typing import *
-
-
-def is_same_column(cells: Iterable[Cell]) -> bool:
-    """
-    Test to see if all cells are in the same column
-
-    :param cells: Cells to test
-    :return: True if same column, false otherwise
-    """
-
-    if cells: cells = list(cells)
-    return cells and [c.location.x for c in cells].count(cells[0].location.x) == len(cells)
-
-
-def is_same_row(cells: Iterable[Cell]) -> bool:
-    """
-    Test to see if all cells are in the same row
-
-    :param cells: Cells to test
-    :return: True if same row, false otherwise
-    """
-
-    if cells: cells = list(cells)
-    return not cells or [c.location.y for c in cells].count(cells[0].location.y) == len(cells)
-
-
-def is_same_box(cells: Iterable[Cell]) -> bool:
-    """
-    Test to see if all cells are in the same box
-
-    :param cells: Cells to test
-    :return: True if same box, false otherwise
-    """
-
-    if cells: cells = list(cells)
-    return not cells or [c.box for c in cells].count(cells[0].box) == len(cells)
-
-
-def remove_candidates_from_cells(cells: Iterable[Cell], candidates: Set[int]) -> bool:
-    if not cells or not candidates: return False
-    cells = [c for c in cells if c.value is None and not c.candidates.isdisjoint(candidates)]
-    for cell in cells: cell.candidates -= candidates
-    return len(cells) > 0
 
 
 class Sudoku(object):
@@ -90,7 +47,7 @@ class Sudoku(object):
         self.populate_candidates()
         self.solve_steps = []
 
-    def reset(self) -> NoReturn:
+    def reset(self) -> None:
         """
         Resets the board to the seed value
 
@@ -202,7 +159,7 @@ class Sudoku(object):
         cells -= {parent}
         return list(cells) if cell_filter is None else [c for c in cells if cell_filter(c)]
 
-    def populate_candidates(self) -> NoReturn:
+    def populate_candidates(self) -> None:
         """
         Populates all cells with no value with possible candidates
 
@@ -210,48 +167,46 @@ class Sudoku(object):
         """
 
         cells = [c for c in self.cells if c.value is None]
+
         if cells:
-            actions = []
             for cell in cells:
                 cell.candidates = self.ALL_CANDIDATES.difference(
                     (rc.value for rc in self.related_cells(cell, cell_filter=lambda c: c.value is not None)))
-                if cell.var_changed("candidates"):
-                    actions.append(action_equal(cell, cell.candidates))
-            if actions:
-                self.solve_steps.append(
-                    Step(Technique(TechniqueArchetype.POPULATE, len(cells)), cells, self.ALL_CANDIDATES, None))
+            cells = [c for c in cells if c.candidates != c.old_candidates]
+            if cells: self.solve_steps.append(solution.step_populate(cells, self.ALL_CANDIDATES))
 
-    def apply_technique(self, technique: Technique, cells: List[Cell], values: Set[int],
-                        info: Optional[str] = None) -> bool:
+    def apply_technique(self, technique: Technique, cells: Iterable[Cell], values: Set[int]) -> bool:
         """
         Applies the technique given to the given cells
 
         :param technique: The technique to use
         :param cells: The cells
         :param values: The values to use
-        :param info: Extra information to help format the log entry
         :return: True if a cell's value changed or any cell candidates
         """
 
         if not cells or not values: return False
 
         actions = []
+        cells = list(cells)
         if technique.type in {TechniqueArchetype.NAKED, TechniqueArchetype.HIDDEN} and technique.size == 1:
+            # naked/hidden single
             cells[0].value = next(iter(values))
-            if cells[0].var_changed("value"):
-                actions.append(action_solve(cells[0]))
-                related_cells = [rc for rc in self.related_cells(
-                    cells[0], cell_filter=lambda c: c.value is None and cells[0].value in c.candidates)]
-                if related_cells:
-                    for rc in related_cells:
-                        pass
+            if cells[0].value_changed():
+                actions.append(solution.action_solve(cells[0]))
+                modified = modify_cell_candidates(
+                    self.related_cells(cells[0], cell_filter=lambda c: c.value is None),
+                    set.difference,
+                    values)
+                if modified:
+                    actions.append(solution.action_remove(modified, values))
         if actions:
-            # self.solve_steps.append(Step(technique, cells, values, actions))
+            self.solve_steps.append(solution.Step(technique, cells, values, actions))
             return True
 
         return False
 
-    def solve(self) -> NoReturn:
+    def solve(self) -> None:
         """
         Attempts to solve the puzzle using common techniques
 
@@ -290,20 +245,24 @@ class Sudoku(object):
         changed = False
         cells = [c for c in self.cells if c.value is None]
         for cell in cells:
-            candidates = None
             if len(cell.candidates) == 1:
-                candidates = cell.candidates
+                changed = self.apply_technique(
+                    Technique(TechniqueArchetype.NAKED, 1),
+                    [cell],
+                    cell.candidates) or changed
             else:
-                for relation in CellRelation.all():
+                for relation in ALL_RELATIONS:
                     candidates = cell.candidates.difference(
                         *[rc.candidates
                           for rc in self.related_cells(cell, {relation}, cell_filter=lambda c: c.value is None)]
                     )
-                    if len(candidates) == 1: break
-            if candidates and len(candidates) == 1:
-                cell.value = next(iter(candidates))
-                remove_candidates_from_cells(self.related_cells(cell), {cell.value})
-                changed = True
+                    if len(candidates) == 1:
+                        changed = self.apply_technique(
+                            Technique(TechniqueArchetype.HIDDEN, 1, relation),
+                            [cell],
+                            candidates
+                        )
+
         return changed
 
     def solve_subsets(self) -> bool:
@@ -496,7 +455,7 @@ class Sudoku(object):
 
         return "".join(buffer)
 
-    def print(self) -> NoReturn:
+    def print(self) -> None:
         """
         Merely a convenience method to write the string representation to the standard output
 
@@ -527,7 +486,7 @@ class Cell(object):
 
         self.box = box
         self.location = location
-        self.candidates = {}
+        self.candidates = NO_CANDIDATES
         self.value = value
 
     def __str__(self) -> str:
@@ -592,7 +551,7 @@ class Cell(object):
         return self._value
 
     @value.setter
-    def value(self, value: Union[int, str]) -> NoReturn:
+    def value(self, value: Union[int, str]) -> None:
         """
         Setter method for value. Allows for int, string input. Strings are converted to int based on the CELL_VALUE_MAP
         Stores the previous value to track changes
@@ -601,7 +560,7 @@ class Cell(object):
         :return:
         """
 
-        self._prev_value = self._value
+        self.old_value = self._value
         if isinstance(value, int):
             self._value = value
         elif isinstance(value, str) and len(value) == 1:
@@ -613,7 +572,7 @@ class Cell(object):
                 self._value = None
         else:
             self._value = None
-        self.candidates = {} if self.value is None else {self.value}
+        self.candidates = {self.value} if self.value else NO_CANDIDATES
 
     @property
     def candidates(self) -> Set[int]:
@@ -626,7 +585,7 @@ class Cell(object):
         return self._candidates
 
     @candidates.setter
-    def candidates(self, value: Set[int]) -> NoReturn:
+    def candidates(self, value: Set[int]) -> None:
         """
         Candidate setter wrapper
         Stores the previous value to track changes
@@ -635,21 +594,64 @@ class Cell(object):
         :return:
         """
 
-        self._prev_candidates = {} if self._candidates is None else self._candidates
-        self._candidates = {} if value is None else value
+        try:
+            self.old_candidates = NO_CANDIDATES if self._candidates is None else self._candidates
+        except AttributeError:
+            self.old_candidates = frozenset(value)
+        self._candidates = frozenset(value) if value else NO_CANDIDATES
 
-    def var_changed(self, var: str) -> Tuple[bool, Union[int, Optional[Set[int]]]]:
-        """
-        Tests whether the given var has changed.
-        Only works for "value" and "candidates"
+    def value_changed(self) -> bool:
+        return self.old_value != self.value
 
-        :param var: Variable to test
-        :return: True if changed, False otherwise and the changed var
-        """
+    def candidates_changed(self) -> bool:
+        return self.old_candidates != self.candidates
 
-        if var == "value":
-            return self.value != self._prev_value, self._prev_value
-        elif var == "candidates":
-            return self.candidates != self._prev_candidates, self._prev_candidates
-        else:
-            return False, None
+
+def is_same_column(cells: Iterable[Cell]) -> bool:
+    """
+    Test to see if all cells are in the same column
+
+    :param cells: Cells to test
+    :return: True if same column, false otherwise
+    """
+
+    if cells: cells = list(cells)
+    return cells and [c.location.x for c in cells].count(cells[0].location.x) == len(cells)
+
+
+def is_same_row(cells: Iterable[Cell]) -> bool:
+    """
+    Test to see if all cells are in the same row
+
+    :param cells: Cells to test
+    :return: True if same row, false otherwise
+    """
+
+    if cells: cells = list(cells)
+    return not cells or [c.location.y for c in cells].count(cells[0].location.y) == len(cells)
+
+
+def is_same_box(cells: Iterable[Cell]) -> bool:
+    """
+    Test to see if all cells are in the same box
+
+    :param cells: Cells to test
+    :return: True if same box, false otherwise
+    """
+
+    if cells: cells = list(cells)
+    return not cells or [c.box for c in cells].count(cells[0].box) == len(cells)
+
+
+def modify_cell_candidates(cells: Iterable[Cell], op: ModifyOperation,
+                           candidates: Set[int]) -> List[Cell]:
+    if not cells or not candidates: return []
+    for cell in cells: cell.candidates = op(cell.candidates, candidates)
+    return [c for c in cells if c.candidates_changed()]
+
+
+def remove_candidates_from_cells(cells: Iterable[Cell], candidates: Set[int]) -> bool:
+    if not cells or not candidates: return False
+    cells = [c for c in cells if c.value is None and not c.candidates.isdisjoint(candidates)]
+    for cell in cells: cell.candidates -= candidates
+    return len(cells) > 0

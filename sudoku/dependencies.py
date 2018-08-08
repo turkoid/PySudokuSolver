@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Set, Optional
+from typing import *
 from enum import Enum
 from dataclasses import dataclass
 
@@ -9,10 +9,6 @@ class CellRelation(Enum):
     ROW = 1,
     COLUMN = 2
 
-    @classmethod
-    def all(cls) -> Set[CellRelation]:
-        return {r for r in cls}
-
 
 class TechniqueArchetype(Enum):
     POPULATE = 0
@@ -21,12 +17,6 @@ class TechniqueArchetype(Enum):
     LOCKED = 3
     FISH = 4
     WING = 5
-
-
-class ArchetypeVariation(Enum):
-    BOX = 0
-    ROW = 1
-    COLUMN = 2
 
 
 class ActionOperation(Enum):
@@ -52,7 +42,7 @@ class Dimension:
 class Technique:
     type: TechniqueArchetype
     size: int
-    variation: Optional[ArchetypeVariation] = None
+    relation: Optional[CellRelation] = None
 
 
 # the default dimension of a single box (not the board)
@@ -65,3 +55,7 @@ CELL_VALUE_MAP = dict(list(zip(
     [" "] + [str(i) for i in range(1, 10)] + [chr(code) for code in range(ord("A"), ord("A") + MAX_CELL_VALUE - 9)]
 )))
 NO_CANDIDATES = frozenset([])
+ALL_RELATIONS = {r for r in CellRelation}
+
+
+ModifyOperation = Callable[[Set[int], Tuple[Iterable[int], ...]], Set[int]]
