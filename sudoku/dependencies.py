@@ -18,13 +18,12 @@ class TechniqueArchetype(Enum):
     POPULATE = 0
     NAKED = 1
     HIDDEN = 2
-    POINTING = 3
-    CLAIMING = 4
-    FISH = 5
-    WING = 6
+    LOCKED = 3
+    FISH = 4
+    WING = 5
 
 
-class ArcheTypeVariation(Enum):
+class ArchetypeVariation(Enum):
     BOX = 0
     ROW = 1
     COLUMN = 2
@@ -53,7 +52,7 @@ class Dimension:
 class Technique:
     type: TechniqueArchetype
     size: int
-    variation: Optional[ArcheTypeVariation] = None
+    variation: Optional[ArchetypeVariation] = None
 
 
 # the default dimension of a single box (not the board)
@@ -65,3 +64,4 @@ CELL_VALUE_MAP = dict(list(zip(
     range(0, MAX_CELL_VALUE + 1),
     [" "] + [str(i) for i in range(1, 10)] + [chr(code) for code in range(ord("A"), ord("A") + MAX_CELL_VALUE - 9)]
 )))
+NO_CANDIDATES = frozenset([])
