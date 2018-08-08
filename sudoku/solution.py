@@ -4,29 +4,27 @@ from sudoku.sudoku import Cell
 from typing import *
 
 
-def action_solve(cell: Cell) -> Action:
-    return Action(ActionOperation.SOLVE, [cell], {cell.value})
+def create_cell_actions(cells: Iterable[Cell]) -> List[CellAction]:
+    return [CellAction(c) for c in cells if c.candidates != c.old_candidates]
 
 
-def action_remove(cells: Iterable[Cell], candidates: Set[int]) -> Action:
-    return Action(ActionOperation.REMOVE, cells, candidates)
+class CellAction(object):
+    def __init__(self, cell: Cell, old: Optional[Set[int]] = None, new: Optional[Set[int]] = None) -> None:
+        self.cell = cell
+        self.old = old if old else cell.old_candidates
+        self.new = new if new else cell.candidates
 
-
-def action_exclusive(cells: Iterable[Cell], candidates: Set[int]) -> Action:
-    return Action(ActionOperation.EXCLUSIVE, cells, candidates)
-
-
-def action_equal(cell: Cell, candidates: Set[int]) -> Action:
-    return Action(ActionOperation.EQUAL, [cell], candidates)
+    def __str__(self) -> str:
+        pass
 
 
 class Action(object):
     def __init__(self, op: ActionOperation, cells: Iterable[Cell], values: Set[int],
-                 action_detail: Optional[Iterable[Action]] = None) -> None:
+                 cell_actions: Optional[Iterable[CellAction]] = None) -> None:
         self.op = op
         self.cells = cells
         self.values = values
-        self.action_detail = list(action_detail) if action_detail else None
+        self.cell_actions = list(cell_actions) if cell_actions else None
 
     def __str__(self) -> str:
         pass
@@ -54,3 +52,28 @@ class Step(object):
 
     def actions_detail(self) -> str:
         pass
+
+
+def action_solve(cell: Cell) -> Action:
+    return Action(ActionOperation.SOLVE, [cell], {cell.value})
+
+
+def action_remove(cells: Iterable[Cell], candidates: Set[int]) -> Action:
+    return Action(ActionOperation.REMOVE, cells, candidates, create_cell_actions(cells))
+
+
+def action_exclusive(cells: Iterable[Cell], candidates: Set[int]) -> Action:
+    return Action(ActionOperation.EXCLUSIVE, cells, candidates, create_cell_actions(cells))
+
+
+def action_equal(cell: Cell, candidates: Set[int]) -> Action:
+    return Action(ActionOperation.EQUAL, [cell], candidates, create_cell_actions([cell]))
+
+
+def step_populate(cells: Iterable[Cell], candidates: Set[int]) -> Step:
+    cells = list(cells)
+    return Step(
+        Technique(TechniqueArchetype.POPULATE, len(cells)),
+        cells,
+        candidates,
+        [action_equal(c, c.candidates) for c in cells])
