@@ -4,10 +4,6 @@ from sudoku.sudoku import Cell
 from typing import *
 
 
-def create_cell_actions(cells: Iterable[Cell]) -> List[CellAction]:
-    return [CellAction(c) for c in cells if c.candidates_changed()]
-
-
 class CellAction(object):
     def __init__(self, cell: Cell, old: Optional[Set[int]] = None, new: Optional[Set[int]] = None) -> None:
         self.cell = cell
@@ -19,12 +15,11 @@ class CellAction(object):
 
 
 class Action(object):
-    def __init__(self, op: ActionOperation, cells: Iterable[Cell], values: Set[int],
-                 cell_actions: Optional[Iterable[CellAction]] = None) -> None:
+    def __init__(self, op: ActionOperation, cells: Iterable[Cell], values: Set[int]) -> None:
         self.op = op
         self.cells = cells
         self.values = values
-        self.cell_actions = list(cell_actions) if cell_actions else None
+        self.cell_actions = [CellAction(c) for c in cells if c.candidates_changed()]
 
     def __str__(self) -> str:
         pass
@@ -59,15 +54,15 @@ def action_solve(cell: Cell) -> Action:
 
 
 def action_remove(cells: Iterable[Cell], candidates: Set[int]) -> Action:
-    return Action(ActionOperation.REMOVE, cells, candidates, create_cell_actions(cells))
+    return Action(ActionOperation.REMOVE, cells, candidates)
 
 
 def action_exclusive(cells: Iterable[Cell], candidates: Set[int]) -> Action:
-    return Action(ActionOperation.EXCLUSIVE, cells, candidates, create_cell_actions(cells))
+    return Action(ActionOperation.EXCLUSIVE, cells, candidates)
 
 
 def action_equal(cell: Cell, candidates: Set[int]) -> Action:
-    return Action(ActionOperation.EQUAL, [cell], candidates, create_cell_actions([cell]))
+    return Action(ActionOperation.EQUAL, [cell], candidates)
 
 
 def step_populate(cells: Iterable[Cell], candidates: Set[int]) -> Step:
