@@ -6,7 +6,6 @@ import itertools as it
 import math
 from collections import Counter
 import re
-from typing import *
 
 
 class Sudoku(object):
@@ -44,8 +43,8 @@ class Sudoku(object):
                       for y in range(0, self.size.height)
                       for x in range(0, self.size.width)]
 
-        self.populate_candidates()
         self.solve_steps = []
+        self.populate_candidates()
 
     def reset(self) -> None:
         """
@@ -147,9 +146,9 @@ class Sudoku(object):
         :return: Related cells
         """
 
-        if relations is None: relations = CellRelation.all()
+        if relations is None: relations = ALL_RELATIONS
 
-        cells = {}
+        cells = set()
         if CellRelation.BOX in relations:
             cells |= set(self.box(parent.box))
         if CellRelation.ROW in relations:
@@ -175,33 +174,51 @@ class Sudoku(object):
             cells = [c for c in cells if c.candidates != c.old_candidates]
             if cells: self.solve_steps.append(solution.step_populate(cells, self.ALL_CANDIDATES))
 
-    def apply_technique(self, technique: Technique, cells: Iterable[Cell], values: Set[int]) -> bool:
+    def apply_technique(self, technique: Technique, source_cells: Iterable[Cell], values: Set[int]) -> bool:
         """
         Applies the technique given to the given cells
 
         :param technique: The technique to use
-        :param cells: The cells
+        :param source_cells: The cells
         :param values: The values to use
         :return: True if a cell's value changed or any cell candidates
         """
 
-        if not cells or not values: return False
+        if not source_cells or not values: return False
 
         actions = []
-        cells = list(cells)
-        if technique.type in {TechniqueArchetype.NAKED, TechniqueArchetype.HIDDEN} and technique.size == 1:
-            # naked/hidden single
+        cells = list(source_cells)
+        if technique.type in [TechniqueArchetype.NAKED, TechniqueArchetype.HIDDEN] and technique.size == 1:
             cells[0].value = next(iter(values))
             if cells[0].value_changed():
                 actions.append(solution.action_solve(cells[0]))
-                modified = modify_cell_candidates(
-                    self.related_cells(cells[0], cell_filter=lambda c: c.value is None),
-                    set.difference,
-                    values)
-                if modified:
-                    actions.append(solution.action_remove(modified, values))
+        elif technique.type is TechniqueArchetype.HIDDEN:
+            modified = modify_cell_candidates(cells, frozenset.intersection, values)
+            if modified:
+                actions.append(solution.action_intersection(modified, values))
+
+        target_cells = None
+        if technique.type is TechniqueArchetype.WING:
+            # right now only handle xy-wing
+            pivot_cell = cells[0]
+            wing_x = cells[1]
+            wing_y = cells[2]
+            target_cells = set(iter(self.related_cells(wing_x)))
+            target_cells &= (set(iter(self.related_cells(wing_y))))
+            target_cells -= {pivot_cell}
+        else:
+            target_cells = set().union(*[self.related_cells(
+                c, technique.target_relation,
+                cell_filter=lambda c: c.value is None and c not in source_cells)
+                for c in source_cells
+            ])
+        if target_cells:
+            modified = modify_cell_candidates(target_cells, frozenset.difference, values)
+            if modified:
+                actions.append(solution.action_difference(modified, values))
+
         if actions:
-            self.solve_steps.append(solution.Step(technique, cells, values, actions))
+            self.solve_steps.append(solution.Step(technique, source_cells, values, actions))
             return True
 
         return False
@@ -247,7 +264,7 @@ class Sudoku(object):
         for cell in cells:
             if len(cell.candidates) == 1:
                 changed = self.apply_technique(
-                    Technique(TechniqueArchetype.NAKED, 1),
+                    Technique(TechniqueArchetype.NAKED, 1, None, ALL_RELATIONS),
                     [cell],
                     cell.candidates) or changed
             else:
@@ -258,7 +275,7 @@ class Sudoku(object):
                     )
                     if len(candidates) == 1:
                         changed = self.apply_technique(
-                            Technique(TechniqueArchetype.HIDDEN, 1, relation),
+                            Technique(TechniqueArchetype.HIDDEN, 1, {relation}, ALL_RELATIONS),
                             [cell],
                             candidates
                         )
@@ -283,12 +300,12 @@ class Sudoku(object):
         """
 
         changed = False
-        for relation in CellRelation.all():
+        for relation in ALL_RELATIONS:
             # this is filtering the multi-dimensional array of rows, columns, or boxes so that each sub-array contains
             # only cells with no value set
             cell_groups = [grp for grp in [[c for c in grp if c.value is None] for grp in (
-                self.boxes if relation == CellRelation.BOX
-                else self.rows if relation == CellRelation.ROW
+                self.boxes if relation is CellRelation.BOX
+                else self.rows if relation is CellRelation.ROW
                 else self.columns
             )] if grp]
             for cells in cell_groups:
@@ -296,27 +313,29 @@ class Sudoku(object):
                 for subset_length in range(2, len(cells) - 1):
                     for subset in it.combinations(cells, subset_length):
                         other_cells = [c for c in cells if c not in subset]
-                        candidates = set().union(*[c.candidates for c in subset])
-                        candidates -= set().union(*[c.candidates for c in other_cells])
-                        if len(candidates) == subset_length:
-                            changed = remove_candidates_from_cells(
-                                subset, candidates.symmetric_difference(
-                                    set().union(*[c.candidates for c in subset])
-                                )) or changed
-                            changed = remove_candidates_from_cells(other_cells, candidates) or changed
-                            blocking_relation = None
-                            if relation == CellRelation.BOX:
+                        source_candidates = set().union(*[c.candidates for c in subset])
+                        target_candidates = source_candidates - set().union(*[c.candidates for c in other_cells])
+                        if len(target_candidates) == subset_length:
+                            changed = self.apply_technique(
+                                Technique(TechniqueArchetype.NAKED
+                                          if source_candidates == target_candidates else
+                                          TechniqueArchetype.HIDDEN,
+                                          len(target_candidates), {relation}, {relation}),
+                                subset, target_candidates) or changed
+                        elif len(target_candidates) < subset_length:
+                            target_relation = None
+                            if relation is CellRelation.BOX:
                                 if is_same_column(subset):
-                                    blocking_relation = CellRelation.COLUMN
+                                    target_relation = CellRelation.COLUMN
                                 elif is_same_row(subset):
-                                    blocking_relation = CellRelation.ROW
+                                    target_relation = CellRelation.ROW
                             elif is_same_box(subset):
-                                blocking_relation = CellRelation.BOX
-                            if blocking_relation is not None:
-                                changed = remove_candidates_from_cells(self.related_cells(
-                                    subset[0], {blocking_relation},
-                                    cell_filter=lambda c: c.value is None and c not in subset
-                                ), candidates) or changed
+                                target_relation = CellRelation.BOX
+                            if target_relation is not None:
+                                changed = self.apply_technique(
+                                    Technique(TechniqueArchetype.LOCKED, subset_length, {relation}, {target_relation}),
+                                    subset, target_candidates) or changed
+                                
         return changed
 
     def solve_fish(self) -> bool:
@@ -338,9 +357,9 @@ class Sudoku(object):
             # filter out cells with values
             cell_grouping = [
                 [c for c in grp if c.value is None]
-                for grp in (self.rows if relation == CellRelation.ROW else self.columns)
+                for grp in (self.rows if relation is CellRelation.ROW else self.columns)
             ]
-            # finds naked or hidden subsetS
+            # finds naked or hidden subsets
             group_sets = [grp for grp in [
                 [
                     subset
@@ -356,15 +375,16 @@ class Sudoku(object):
             # then it only allows where they have at least one common candidate
             # and also that there is at least 2 intersections of each cell
             fishes = [
-                [c for subset in fish for c in subset]
-                for fish_size in range(2, 3)
+                Fish(fish_size, [c for subset in fish for c in subset])
+                for fish_size in range(2, len(group_sets) + 1)
                 for fish_stock in it.combinations(group_sets, fish_size)
                 for fish in it.product(*fish_stock)
-                if len(self.ALL_CANDIDATES.intersection(*[c.candidates for subset in fish for c in subset])) >= 1
+                if len({c.location.x if relation is CellRelation.ROW else c.location.y for subset in fish for c in subset}) == fish_size
+                and len(self.ALL_CANDIDATES.intersection(*[c.candidates for subset in fish for c in subset])) >= 1
                 and len(
                     [cnt for _, cnt in
                      Counter([
-                         c.location.x if relation == CellRelation.ROW else c.location.y
+                         c.location.x if relation is CellRelation.ROW else c.location.y
                          for subset in fish
                          for c in subset]
                      ).items() if cnt == 1]
@@ -372,22 +392,21 @@ class Sudoku(object):
             ]
             # lets do the magic
             for fish in fishes:
-                base_indices = {c.location.x if relation == CellRelation.COLUMN else c.location.y for c in fish}
-                cover_indices = {c.location.y if relation == CellRelation.COLUMN else c.location.x for c in fish}
-                candidates = self.ALL_CANDIDATES.intersection(*[c.candidates for c in fish])
+                candidates = self.ALL_CANDIDATES.intersection(*[c.candidates for c in fish.cells])
                 candidates -= set().union(*[
-                    c.candidates
-                    for index in base_indices
-                    for c in (self.column(index) if relation == CellRelation.COLUMN else self.row(index))
-                    if c.value is None and c not in fish
+                    rc.candidates
+                    for c in fish.cells
+                    for rc in self.related_cells(c, {relation})
+                    if rc.value is None and rc not in fish.cells
                 ])
-                cells = [
-                    c
-                    for index in cover_indices
-                    for c in (self.row(index) if relation == CellRelation.COLUMN else self.column(index))
-                    if c.value is None and c not in fish
-                ]
-                changed = remove_candidates_from_cells(cells, candidates) or changed
+                changed = self.apply_technique(
+                    Technique(TechniqueArchetype.FISH, 
+                              fish.size, 
+                              {relation}, 
+                              {CellRelation.ROW if relation is CellRelation.COLUMN else CellRelation.COLUMN}),
+                    fish.cells,
+                    candidates
+                ) or changed
 
         return changed
 
@@ -412,11 +431,11 @@ class Sudoku(object):
                      and not wc[0].is_related(wc[1])
                      and len(pivot_cell.candidates | wc[0].candidates | wc[1].candidates) == 3]
             for wing in wings:
-                wing_x = wing[0]
-                wing_y = wing[1]
-                cells = set(iter(self.related_cells(wing_x))) & (set(iter(self.related_cells(wing_y)))) - {pivot_cell}
-                changed = remove_candidates_from_cells(
-                    list(cells), wing_x.candidates.intersection(wing_y.candidates)) or changed
+                changed = self.apply_technique(
+                    Technique(TechniqueArchetype.WING, 2, None, ALL_RELATIONS),
+                    [pivot_cell, *wing],
+                    wing[0].candidates.intersection(wing[1].candidates)
+                )
 
         return changed
 
@@ -472,6 +491,12 @@ class Sudoku(object):
 
         return "".join("." if c.value is None else str(c) for c in self.cells)
 
+    def solution(self) -> str:
+        buffer = list()
+        for i, step in enumerate(self.solve_steps):
+            buffer.append("\nStep {i}: {info}".format(i=i + 1, info=str(step)))
+        return "".join(buffer)
+
 
 class Cell(object):
     def __init__(self, box: Point, location: Point, value: Union[int, str] = None) -> None:
@@ -517,14 +542,15 @@ class Cell(object):
         """
 
         if var == "box":
-            return "[{sq.x}, {sq.y}]".format(sq=self.box)
+            return "[{sq.x}, {sq.y}]".format(sq=Point(self.box.x + 1, self.box.y + 1))
         elif var == "location":
             if options == "r1c1":
                 return "r{}c{}".format(self.location.y + 1, self.location.x + 1)
             elif options == "R1C1":
                 return "R{}C{}".format(self.location.y + 1, self.location.x + 1)
             else:
-                return "{}{}".format(chr(ord("A") + self.location.x), self.location.y + 1)
+                return "{}{}".format(chr(ord("A") + self.location.y), self.location.x + 1)
+                # return "{}{}".format(chr(ord("A") + self.location.x), self.location.y + 1)
         elif var == "candidates":
             return "{{{}}}".format(", ".join(CELL_VALUE_MAP[v] for v in self.candidates))
         elif var == "value":
@@ -560,7 +586,10 @@ class Cell(object):
         :return:
         """
 
-        self.old_value = self._value
+        try:
+            self.old_value = NO_CANDIDATES if self._value is None else self._value
+        except AttributeError:
+            self.old_value = None
         if isinstance(value, int):
             self._value = value
         elif isinstance(value, str) and len(value) == 1:
@@ -648,10 +677,3 @@ def modify_cell_candidates(cells: Iterable[Cell], op: ModifyOperation,
     if not cells or not candidates: return []
     for cell in cells: cell.candidates = op(cell.candidates, candidates)
     return [c for c in cells if c.candidates_changed()]
-
-
-def remove_candidates_from_cells(cells: Iterable[Cell], candidates: Set[int]) -> bool:
-    if not cells or not candidates: return False
-    cells = [c for c in cells if c.value is None and not c.candidates.isdisjoint(candidates)]
-    for cell in cells: cell.candidates -= candidates
-    return len(cells) > 0

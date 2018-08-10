@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import *
 from enum import Enum
 from dataclasses import dataclass
+import sudoku.puzzle as sudoku
 
 
 class CellRelation(Enum):
@@ -21,8 +22,8 @@ class TechniqueArchetype(Enum):
 
 class ActionOperation(Enum):
     SOLVE = 0
-    REMOVE = 1
-    EXCLUSIVE = 2
+    DIFFERENCE = 1
+    INTERSECTION = 2
     EQUAL = 3
 
 
@@ -42,7 +43,20 @@ class Dimension:
 class Technique:
     type: TechniqueArchetype
     size: int
-    relation: Optional[CellRelation] = None
+    source_relation: Optional[Set[CellRelation]] = None
+    target_relation: Optional[Set[CellRelation]] = None
+
+
+@dataclass(frozen=True)
+class Fish:
+    size: int
+    cells: Iterable[sudoku.Cell]
+
+
+@dataclass(frozen=True)
+class Wing:
+    pivot: sudoku.Cell
+    cells: Iterable[sudoku.Cell]
 
 
 # the default dimension of a single box (not the board)
@@ -56,6 +70,21 @@ CELL_VALUE_MAP = dict(list(zip(
 )))
 NO_CANDIDATES = frozenset([])
 ALL_RELATIONS = {r for r in CellRelation}
-
+TUPLE_SIZE = {
+    1: "Single",
+    2: "Pair",
+    3: "Triple",
+    4: "Quadruple"
+}
+FISH_SIZE = {
+    2: "X-Wing",
+    3: "Swordfish",
+    4: "Jellyfish"
+}
+RELATION = {
+    CellRelation.BOX: "Box",
+    CellRelation.ROW: "Row",
+    CellRelation.COLUMN: "Column"
+}
 
 ModifyOperation = Callable[[Set[int], Tuple[Iterable[int], ...]], Set[int]]
